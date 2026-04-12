@@ -1,0 +1,2 @@
+source E:/project/Audio/build/bootloader/gdbinit/symbols
+source E:/project/Audio/build/bootloader/gdbinit/connect
