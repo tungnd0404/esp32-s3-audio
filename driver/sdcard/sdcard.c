@@ -237,7 +237,7 @@ void sdcard_task(void *pvParameters)
                                                portMAX_DELAY);
             if (bits & (EVT_PRELOAD | EVT_LOAD_MISS)) 
             {
-                sd_task_load_buffer();
+                sd_task_load_double_buffer();
             }    
         }    
     }

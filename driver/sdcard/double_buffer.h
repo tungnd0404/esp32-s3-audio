@@ -43,7 +43,7 @@ bool double_buffer_get_frame(uint32_t index, uint8_t *out_frame);
 
 // Hàm dành riêng cho SD task: thực hiện load dữ liệu từ file vào buffer
 // Trả về true nếu load thành công, false nếu lỗi
-bool sd_task_load_buffer(void);
+bool sd_task_load_double_buffer(void);
 
 #ifdef __cplusplus
 }

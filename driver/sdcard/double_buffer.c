@@ -284,7 +284,7 @@ bool double_buffer_get_frame(uint32_t index, uint8_t *out_frame)
 }
 
 // Hàm dành riêng cho SD task: thực hiện load buffer tiếp theo hoặc buffer bị miss
-bool sd_task_load_buffer(void)
+bool sd_task_load_double_buffer(void)
 {
     if (!frame_file) return false;
 
