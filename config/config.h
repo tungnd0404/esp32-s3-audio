@@ -27,6 +27,9 @@ extern "C" {
 #define BTN_PREV   17
 #define BTN_PLAY   18
 
+// Định nghĩa số frame trên giây (có thể điều chỉnh)
+#define FRAME_PER_SECOND 15
+
 #ifdef __cplusplus
 }
 #endif

@@ -1,11 +1,8 @@
 #ifndef SYNCTASK_H
 #define SYNCTASK_H
 
-extern volatile float virtualTime;
-extern volatile uint16_t decodePrev;
-extern volatile uint16_t decodeNow;
-extern volatile unsigned long lastSync;
+void initSync();
 
-void syncTime();   // khai báo hàm
+int syncFrameWithMp3();
 
 #endif /* SYNCTASK_H */

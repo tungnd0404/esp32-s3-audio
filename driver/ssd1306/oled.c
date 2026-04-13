@@ -3,10 +3,19 @@
 #include "button.h"
 #include "menu.h"
 
+static uint8_t frame[FRAME_SIZE];
+
 void oled_init(SSD1306_t * dev)
 {
     i2c_master_init(dev, CONFIG_SDA_GPIO, CONFIG_SCL_GPIO, CONFIG_RESET_GPIO);
     ssd1306_init(dev, CONFIG_WIDTH, CONFIG_HEIGHT);
+}
+
+void oled_draw_frame(uint8_t *frame)
+{
+    for (int page = 0; page < 8; page++) {
+        ssd1306_display_image(&dev, page, 0, &frame[page * 128], 128);
+    }
 }
 
 //================== HANDLE BUTTON ==================
@@ -48,13 +57,16 @@ static void oled_handle(SSD1306_t *dev)
     // state playing
     else
     {
-        switch (statePlay) {
-        case STATE_PLAY_PLAY:
-            
+        switch (stateButton) {
+        case STATE_PLAY:
+            int frame_index = syncFrameWithMp3();
+            double_buffer_get_frame(frame_index,frame);
+            oled_draw_frame(frame);
+            vTaskDelay(pdMS_TO_TICKS(40));
             break;
 
-        case STATE_PLAY_PAUSE:
-            
+        case STATE_PAUSE:
+            /* có thể vẽ nút pause ở đây */
             break;
 
         default:
