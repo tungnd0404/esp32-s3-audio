@@ -1,18 +1,20 @@
 idf_component_register(
     SRCS
         "Audio.c"
-        "../driver/sdcard/sdcard.c"
-        "../driver/ssd1306/oled.c"
-        "../driver/ssd1306/ssd1306_i2c_new.c"
-        "../driver/ssd1306/ssd1306.c"
-        "../driver/ssd1306/ssd1306_spi.c"
+        "../driver/buffer/double_buffer.c"
+        "../driver/buffer/sync_frame.c"
         "../driver/ssd1306/menu.c"
-        "../app/button.c"
+        "../driver/ssd1306/ssd1306_i2c_new.c"
+        "../driver/ssd1306/ssd1306_spi.c"
+        "../driver/ssd1306/ssd1306.c"
+        "../task/button.c"
+        "../task/oled.c"
+        "../task/sdcard.c"
 
     INCLUDE_DIRS
         "."
-        "../driver/sdcard"
+        "../driver/buffer"
         "../driver/ssd1306"
         "../config"
-        "../app"
+        "../task"
 )

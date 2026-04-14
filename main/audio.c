@@ -12,43 +12,29 @@ SSD1306_t dev;
 
 void app_main(void)
 {
+    /* mount sd card */
     sdcard_mount();
+    /* scan and get info of mp3 and frame */
     scan_sdcard_and_create_db("/sdcard");
+    /* display on console */
     read_db_file();
 
+    /* oled init */
     oled_init(&dev);
-    ssd1306_clear_screen(&dev, false);
-    ssd1306_display_text(&dev, 4, "Hello", 5, false);
+    /* display logo */
+    /* ssd1306_clear_screen(&dev, false);
+    ssd1306_display_text(&dev, 4, "Hello", 5, false); */
 
+    /* button init */
     button_init();
 
-    xTaskCreate(
-    sdcard_task,     // hàm task
-    "sdcard_task",        // tên task
-    4096,               // stack size (bytes)
-    &dev,               // truyền tham số vào (pvParameters)
-    5,                  // priority
-    NULL                // handle (có thể NULL)
-);
-    
-    xTaskCreatePinnedToCore(
-    button_task,
-    "button_task",
-    4096,
-    NULL,
-    5,
-    NULL,
-    0   // core 0 hoặc 1
-);
-    xTaskCreate(
-    oled_task,     // hàm task
-    "oled_task",        // tên task
-    4096,               // stack size (bytes)
-    &dev,               // truyền tham số vào (pvParameters)
-    5,                  // priority
-    NULL                // handle (có thể NULL)
-);
+    /* start run task */
+   xTaskCreatePinnedToCore(sdcard_task, "sdcard_task", 4096, &dev, 5, NULL, 1);
 
-    printf("Reset reason: %d\n", esp_reset_reason());   
+    xTaskCreatePinnedToCore(button_task, "button_task", 4096, NULL, 5, NULL, 1);
 
+    xTaskCreatePinnedToCore(oled_task, "oled_task", 4096, &dev, 5, NULL, 1);
+
+    /* never to jumb */
+    while(1);
 }
