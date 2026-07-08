@@ -4,6 +4,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define DEVELOPER_CONFIGURATION
 /*------------------------------------------------------------
                          CONFIG PROJECT
 ------------------------------------------------------------*/
@@ -23,12 +25,17 @@ extern "C" {
 #define CONFIG_OFFSETX  0
 
 // Gán chân nút bấm
-#define BTN_NEXT   16
-#define BTN_PREV   17
-#define BTN_PLAY   18
+#define BTN_NEXT_PIN   16
+#define BTN_PREV_PIN   17
+#define BTN_PLAY_PIN   18
 
 // Định nghĩa số frame trên giây (có thể điều chỉnh)
 #define FRAME_PER_SECOND 15
+
+/* Gán chân SD card */
+#define SD_CLK   GPIO_NUM_39
+#define SD_CMD   GPIO_NUM_38
+#define SD_D0   GPIO_NUM_40
 
 #ifdef __cplusplus
 }

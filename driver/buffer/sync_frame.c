@@ -72,14 +72,3 @@ uint32_t syncFrameWithMp3() {
 
     return frameIndex;
 } 
-
-/* ==============================
-   Task đồng bộ (chạy song song)
-=============================== */
-/* void syncTask(void *param) {
-    void initSync();
-    for (;;) {
-        get_virtualtime();                        // cập nhật virtualTime
-        vTaskDelay(50 / portTICK_PERIOD_MS); // gọi mỗi 50ms
-    }
-} */

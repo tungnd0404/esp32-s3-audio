@@ -7,9 +7,10 @@ idf_component_register(
         "../driver/ssd1306/ssd1306_i2c_new.c"
         "../driver/ssd1306/ssd1306_spi.c"
         "../driver/ssd1306/ssd1306.c"
-        "../task/button.c"
+        "../driver/button/button.c"
         "../task/oled.c"
         "../task/sdcard.c"
+        "../task/player_manager.c"
 
     INCLUDE_DIRS
         "."
@@ -17,4 +18,5 @@ idf_component_register(
         "../driver/ssd1306"
         "../config"
         "../task"
+        "../driver/button"
 )

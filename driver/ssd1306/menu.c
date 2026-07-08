@@ -3,13 +3,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "menu.h"
-#include "button.h"
-#include "sdcard.h"
 
 // ===== MENU DEFAULT 20 ITEMS =====
-//static int song_count = song_count;
 
-volatile int cursor = 0;        // vị trí con trỏ
 volatile int start_index = 0;   // vị trí dòng đầu tiên trong vùng hiển thị
 
 // ================== VẼ MENU ==================
@@ -17,9 +13,10 @@ void draw_menu(SSD1306_t *dev)
 {
     ssd1306_clear_screen(dev, false);
 
-    int max_display = 8; // Màn hình 128x64 => 8 dòng (font 8x8)
+    int max_display = 8; // Màn hình 128x64 => 8 dòng (font 8x8) 
 
-    for (int i = 0; i < max_display; i++) {
+    for (int i = 0; i < max_display; i++) 
+    {
         int item_index = start_index + i;
         if (item_index >= song_count) break;
 

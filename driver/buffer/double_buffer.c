@@ -4,43 +4,43 @@
 
 static const char *TAG = "DOUBLE_BUFFER";
 
-// ==================== Định nghĩa biến toàn cục ====================
-// Hai vùng đệm chính
+/* ==================== Định nghĩa biến toàn cục ==================== */
+/* Hai vùng đệm chính */
 static uint8_t bufferA[CACHE_FRAMES][FRAME_SIZE];
 static uint8_t bufferB[CACHE_FRAMES][FRAME_SIZE];
 
-// Chỉ số frame đầu tiên trong mỗi buffer
+/* index frame đầu tiên trong mỗi buffer */
 static uint32_t startA = 0;
 static uint32_t startB = 0;
 
-// Số frame thực tế đã load được vào mỗi buffer (có thể < CACHE_FRAMES ở cuối file)
+/* Số frame thực tế đã load được vào mỗi buffer (có thể < CACHE_FRAMES ở cuối file) */
 static uint32_t countA = 0;
 static uint32_t countB = 0;
 
-// Cờ cho biết buffer đã sẵn sàng để đọc chưa
+/* Cờ cho biết buffer đã sẵn sàng để đọc chưa */
 static bool readyA = false;
 static bool readyB = false;
 
-// Buffer nào đang được dùng để phục vụ double_buffer_get_frame()
+/* Buffer nào đang được dùng để phục vụ double_buffer_get_frame() */
 static bool usingA = true;
 
-// Cờ tránh gửi sự kiện PRELOAD nhiều lần cho mỗi buffer
+/* Cờ tránh gửi sự kiện PRELOAD nhiều lần cho mỗi buffer */
 static bool preload_requested_for_A = false;
 static bool preload_requested_for_B = false;
 
-// Mutex bảo vệ truy cập vào các biến toàn cục trên
+/* Mutex bảo vệ truy cập vào các biến toàn cục trên */
 static SemaphoreHandle_t double_buffer_mutex = NULL;
 
-// Event group để đồng bộ với SD task
+/* Event group để đồng bộ với SD task */
 EventGroupHandle_t double_buffer_event = NULL;
 
-// Con trỏ FILE đang mở (đọc frame.bin)
+/* Con trỏ FILE đang mở (đọc frame.bin) */
 static FILE *frame_file = NULL;
 
-// Tổng số frame của bài hiện tại
+/* Tổng số frame của bài hiện tại bằng size file chia cho 1024 (1 frame) */
 static uint32_t total_frames = 0;
 
-// ==================== Hàm nội bộ ====================
+/* ==================== Hàm nội bộ ==================== */
 
 /**
  * @brief Load dữ liệu từ file vào một buffer cụ thể tại vị trí index
@@ -51,20 +51,26 @@ static uint32_t total_frames = 0;
  * @return true nếu thành công (có ít nhất 1 frame), false nếu lỗi hoặc hết file
  */
 static bool load_double_buffer_internal(uint8_t buffer[][FRAME_SIZE],
-                                  uint32_t *start,
-                                  uint32_t *count,
-                                  uint32_t index)
+                                        uint32_t *start,
+                                        uint32_t *count,
+                                        uint32_t index)
 {
+    /* check frame_file != NULL */
     if (!frame_file) return false;
+    /* chceck index với total_frame */
     if (index >= total_frames) return false;
 
+    /* ghi lại giá trị index frame đầu tiên trong mỗi buffer */
     *start = index;
+    /* set con trỏ file nhảy đến đúng frame index */
     long offset = (long)index * FRAME_SIZE;
-    if (fseek(frame_file, offset, SEEK_SET) != 0) {
+    if (fseek(frame_file, offset, SEEK_SET) != 0) 
+    {
         ESP_LOGE(TAG, "fseek failed at index %lu", index);
         return false;
     }
 
+    /* đọc file ghi ra buffer cụ thể */
     uint32_t frames_loaded = 0;
     for (int i = 0; i < CACHE_FRAMES; i++) {
         if (index + i >= total_frames)
@@ -76,6 +82,7 @@ static bool load_double_buffer_internal(uint8_t buffer[][FRAME_SIZE],
         }
         frames_loaded++;
     }
+    /* update tổng số frame thực tế trong buffer cụ thể */
     *count = frames_loaded;
     return (frames_loaded > 0);
 }
@@ -83,42 +90,85 @@ static bool load_double_buffer_internal(uint8_t buffer[][FRAME_SIZE],
 /**
  * @brief Chuyển đổi buffer đang dùng (flip) nếu buffer kia đã sẵn sàng
  *        Hàm này phải được gọi trong khi đã giữ mutex
- * @param current_index  Chỉ số frame đang cần đọc
+ * @param index  Chỉ số frame đang cần đọc
  * @return true nếu đã flip thành công và buffer mới chứa frame cần, false nếu chưa thể flip
  */
-static bool try_flip_buffer(uint32_t current_index)
+static bool flip_buffer(uint32_t index)
 {
     if (usingA) {
-        // Nếu buffer A không còn chứa frame này nữa (đã đọc hết)
-        if (current_index >= startA + countA) {
-            if (readyB && current_index >= startB && current_index < startB + countB) {
-                // Flip sang buffer B
+        /* Nếu buffer A không còn chứa frame này nữa (đã đọc hết) */
+        if (index >= startA + countA) 
+        {
+            /* check index có trong buffer B hay không */
+            if ((readyB == true) && (index >= startB) && (index < startB + countB)) 
+            {
+                /* Flip sang buffer B */
                 usingA = false;
                 ESP_LOGD(TAG, "Flip to buffer B, startB=%lu, countB=%lu", startB, countB);
                 return true;
             }
         }
-    } else {
-        if (current_index >= startB + countB) {
-            if (readyA && current_index >= startA && current_index < startA + countA) {
+    } 
+    else 
+    {
+        /* Nếu buffer B không còn chứa frame này nữa (đã đọc hết) */
+        if (index >= startB + countB) 
+        {
+            /* check index có trong buffer A hay không */
+            if (readyA && index >= startA && index < startA + countA) {
                 usingA = true;
                 ESP_LOGD(TAG, "Flip to buffer A, startA=%lu, countA=%lu", startA, countA);
                 return true;
             }
         }
     }
+    /* nếu index không có ở buffer nào */
     return false;
 }
 
-// ==================== API công khai ====================
+/* ==================== API công khai ==================== */
 
 void double_buffer_init(void)
 {
+    /* ==================== reset biến toàn cục ==================== */
+
+    /* index frame đầu tiên trong mỗi buffer */
+    startA = 0;
+    startB = 0;
+
+    /* Số frame thực tế đã load được vào mỗi buffer (có thể < CACHE_FRAMES ở cuối file) */
+    countA = 0;
+    countB = 0;
+
+    /* Cờ cho biết buffer đã sẵn sàng để đọc chưa */
+    readyA = false;
+    readyB = false;
+
+    /* Buffer nào đang được dùng để phục vụ double_buffer_get_frame() */
+    usingA = true;
+
+    /* Cờ tránh gửi sự kiện PRELOAD nhiều lần cho mỗi buffer */
+    preload_requested_for_A = false;
+    preload_requested_for_B = false;
+
+    /* Mutex bảo vệ truy cập vào các biến toàn cục trên */
+    double_buffer_mutex = NULL;
+
+    /* Event group để đồng bộ với SD task */
+    double_buffer_event = NULL;
+
+    /* Con trỏ FILE đang mở (đọc frame.bin) */
+    frame_file = NULL;
+
+    /* Tổng số frame của bài hiện tại bằng size file chia cho 1024 (1 frame) */
+    total_frames = 0;
+    /* khởi tạo mutex */
     double_buffer_mutex = xSemaphoreCreateMutex();
     if (!double_buffer_mutex) {
         ESP_LOGE(TAG, "Failed to create mutex");
         return;
     }
+    /* khởi tạo event cho double buffer */
     double_buffer_event = xEventGroupCreate();
     if (!double_buffer_event) {
         ESP_LOGE(TAG, "Failed to create event group");
@@ -129,8 +179,14 @@ void double_buffer_init(void)
     ESP_LOGI(TAG, "Double buffer module initialized");
 }
 
+/**
+ * @brief load đầy 2 buffer A và B
+ * hàm này sẽ được call đầu tiên khi start new song
+ * @param path  patch file (frame.bin)
+ */
 void double_buffer_open(const char *path)
 {
+    /* check init */
     if (!double_buffer_mutex || !double_buffer_event) {
         ESP_LOGE(TAG, "Module not initialized. Call double_buffer_init() first.");
         return;
@@ -138,13 +194,13 @@ void double_buffer_open(const char *path)
 
     xSemaphoreTake(double_buffer_mutex, portMAX_DELAY);
 
-    // Đóng file cũ nếu có
+    /* Đóng file cũ nếu có */
     if (frame_file) {
         fclose(frame_file);
         frame_file = NULL;
     }
 
-    // Mở file mới
+    /* Mở file mới */
     frame_file = fopen(path, "rb");
     if (!frame_file) {
         ESP_LOGE(TAG, "Cannot open %s", path);
@@ -152,22 +208,27 @@ void double_buffer_open(const char *path)
         return;
     }
 
-    // Lấy kích thước file
+    /* Lấy kích thước file */
     fseek(frame_file, 0, SEEK_END);
     long size = ftell(frame_file);
     fseek(frame_file, 0, SEEK_SET);
     total_frames = size / FRAME_SIZE;
     ESP_LOGI(TAG, "Opened %s, total frames = %lu", path, total_frames);
 
-    // Load buffer A từ frame 0
+    /* Load buffer A từ frame 0 */
     readyA = load_double_buffer_internal(bufferA, &startA, &countA, 0);
-    readyB = false;
+
+    uint32_t temp_start_bufferB = startA + countA;
+    /* Load buffer B từ frame startA + countA (15) */
+    readyB = load_double_buffer_internal(bufferB, &startB, &countB, temp_start_bufferB);
     usingA = true;
     preload_requested_for_A = false;
     preload_requested_for_B = false;
 
-    // Nếu load A thất bại, xóa file
-    if (!readyA) {
+    /* Nếu load A và B thất bại, xóa file */
+    if ((!readyA) && (!readyB)) 
+    {
+        ESP_LOGI(TAG, "fail to load double buffer");
         fclose(frame_file);
         frame_file = NULL;
         total_frames = 0;
@@ -176,14 +237,19 @@ void double_buffer_open(const char *path)
     xSemaphoreGive(double_buffer_mutex);
 }
 
+/**
+ * @brief Xóa khởi tạo double buffer
+ * hàm này sẽ được call khi next prev hoặc open new
+ */
 void double_buffer_close(void)
 {
     xSemaphoreTake(double_buffer_mutex, portMAX_DELAY);
-
+    /* close file */
     if (frame_file) {
         fclose(frame_file);
         frame_file = NULL;
     }
+    /* reset value of global variable */
     readyA = false;
     readyB = false;
     startA = startB = 0;
@@ -196,6 +262,10 @@ void double_buffer_close(void)
     xSemaphoreGive(double_buffer_mutex);
 }
 
+/**
+ * @brief Tổng số frame trong file (frame.bin)
+ * hàm này chỉ được call khi call double_buffer_open
+ */
 uint32_t double_buffer_total_frames(void)
 {
     uint32_t ret;
@@ -205,54 +275,80 @@ uint32_t double_buffer_total_frames(void)
     return ret;
 }
 
+/**
+ * @brief Get frame theo index
+ * hàm này sẽ được call khi cần get frame bất kỳ
+ * ===================================================================================================
+ *                                          Hàm dành riêng cho oled_task
+ * ===================================================================================================
+ * @param index  frame index
+ * @param out_frame  con trỏ lưu frame
+ */
 bool double_buffer_get_frame(uint32_t index, uint8_t *out_frame)
 {
     if (!out_frame) return false;
 
-    // Kiểm tra chỉ số hợp lệ
-    if (index >= double_buffer_total_frames()) {
+    /* Kiểm tra index hợp lệ */
+    if (index >= double_buffer_total_frames()) 
+    {
         ESP_LOGE(TAG, "Index %lu out of range (max %lu)", index, total_frames);
         return false;
     }
 
     // Vòng lặp retry (không đệ quy)
-    while (1) {
+    while (1) 
+    {
         bool found = false;
 
         xSemaphoreTake(double_buffer_mutex, portMAX_DELAY);
 
-        // Kiểm tra trong buffer hiện tại
-        if (usingA && readyA) {
-            if (index >= startA && index < startA + countA) {
+        /* Kiểm tra trong buffer hiện tại */
+        if (usingA && readyA) 
+        {
+            /* check buffer A */
+            if (index >= startA && index < startA + countA) 
+            {
                 memcpy(out_frame, bufferA[index - startA], FRAME_SIZE);
                 found = true;
 
-                // Kích hoạt preload nếu đã đọc hơn 80% buffer A và chưa yêu cầu preload cho B
-                if (!preload_requested_for_B &&
-                    (index - startA) > (countA * 8 / 10)) {
+                /* Kích hoạt preload nếu đã đọc hơn 80% buffer A và chưa yêu cầu preload cho B */
+                if (!preload_requested_for_B && (index - startA) > (countA * 8 / 10)) 
+                {
                     preload_requested_for_B = true;
+                    /* set event preload */
                     xEventGroupSetBits(double_buffer_event, EVT_PRELOAD);
                     ESP_LOGD(TAG, "Preload requested for buffer B at index %lu", index);
                 }
             }
-        } else if (!usingA && readyB) {
-            if (index >= startB && index < startB + countB) {
+        } 
+        else if (!usingA && readyB) 
+        {
+            /* check buffer A */
+            if (index >= startB && index < startB + countB) 
+            {
                 memcpy(out_frame, bufferB[index - startB], FRAME_SIZE);
                 found = true;
 
-                if (!preload_requested_for_A &&
-                    (index - startB) > (countB * 8 / 10)) {
+                /* Kích hoạt preload nếu đã đọc hơn 80% buffer B và chưa yêu cầu preload cho A */
+                if (!preload_requested_for_A && (index - startB) > (countB * 8 / 10)) 
+                {
                     preload_requested_for_A = true;
+                    /* set event preload */
                     xEventGroupSetBits(double_buffer_event, EVT_PRELOAD);
                     ESP_LOGD(TAG, "Preload requested for buffer A at index %lu", index);
                 }
             }
         }
 
-        // Nếu không tìm thấy trong buffer hiện tại, thử flip sang buffer kia
-        if (!found) {
-            if (try_flip_buffer(index)) {
-                // Đã flip, kiểm tra lại trong buffer mới (vòng lặp tiếp theo)
+        /* Nếu không tìm thấy trong buffer hiện tại, thử flip sang buffer kia */
+        if (!found) 
+        {
+            /* flip sang buffer còn lại */
+            /* check frame đã có trong buffer hay chưa */
+            if (flip_buffer(index)) 
+            {
+                /* Đã flip, có frame, copy frame ra output (vòng lặp tiếp theo) */
+                /* nhả semaphore */
                 xSemaphoreGive(double_buffer_mutex);
                 continue;
             }
@@ -260,74 +356,91 @@ bool double_buffer_get_frame(uint32_t index, uint8_t *out_frame)
 
         xSemaphoreGive(double_buffer_mutex);
 
-        if (found) {
+        /* đã có frame */
+        if (found) 
+        {
             return true;
         }
 
-        // Không có buffer nào chứa frame cần -> báo miss, chờ SD task load
+        /* Không có buffer nào chứa frame cần -> báo miss, chờ SD task load */
         ESP_LOGW(TAG, "Frame %lu not in any buffer, requesting load miss", index);
         xEventGroupSetBits(double_buffer_event, EVT_LOAD_MISS);
 
-        // Chờ sự kiện EVT_READY với timeout 5 giây
+        /* đợi sd task lấy frame mới */
+        /* Chờ sự kiện EVT_READY với timeout 5 giây */
         EventBits_t bits = xEventGroupWaitBits(double_buffer_event,
                                                 EVT_READY,
-                                                pdTRUE,   // clear bit sau khi nhận
-                                                pdTRUE,   // wait for all bits (chỉ 1 bit)
+                                                pdTRUE,   /* clear bit sau khi nhận */
+                                                pdTRUE,   /* wait for all bits (chỉ 1 bit) */
                                                 pdMS_TO_TICKS(5000));
         if (!(bits & EVT_READY)) {
             ESP_LOGE(TAG, "Timeout waiting for frame %lu", index);
             return false;
         }
-
-        // Sau khi được báo ready, quay lại vòng lặp để thử lấy frame lần nữa
+        
+        /* Sau khi được báo load frame thiếu ready, quay lại vòng lặp để thử lấy frame lần nữa */
     }
 }
 
-// Hàm dành riêng cho SD task: thực hiện load buffer tiếp theo hoặc buffer bị miss
+/**
+ * @brief Thực hiện load buffer tiếp theo hoặc buffer bị miss
+ * hàm này sẽ được call khi frame index không có trong buffer
+ */
 bool sd_task_load_double_buffer(void)
 {
+    /* check con trỏ file */
     if (!frame_file) return false;
 
     xSemaphoreTake(double_buffer_mutex, portMAX_DELAY);
 
-    // Xác định buffer nào cần được load
+    /* Xác định buffer nào cần được load */
     bool need_load_A = false;
     bool need_load_B = false;
     uint32_t load_index = 0;
 
-    if (usingA) {
-        // Buffer A đang dùng, cần preload buffer B
-        if (!readyB && preload_requested_for_B) {
+    if (usingA)
+    {
+        /* Buffer A đang dùng, cần preload buffer B */
+        if (!readyB && preload_requested_for_B) 
+        {
             need_load_B = true;
-            // Tính index cần load cho B: thường là startA + countA (tiếp theo sau buffer A)
+            /* Tính index cần load cho B: là startA + countA (tiếp theo sau buffer A) */
             load_index = startA + countA;
             if (load_index >= total_frames) {
-                // Hết file, không cần load
+                /* Hết file, không cần load */
                 preload_requested_for_B = false;
                 need_load_B = false;
             }
         }
-    } else {
-        if (!readyA && preload_requested_for_A) {
+    } 
+    else 
+    {
+        /* Buffer B đang dùng, cần preload buffer A */
+        if (!readyA && preload_requested_for_A) 
+        {
             need_load_A = true;
+            /* Tính index cần load cho A: là startB + countB (tiếp theo sau buffer B) */
             load_index = startB + countB;
-            if (load_index >= total_frames) {
+            if (load_index >= total_frames) 
+            {
+                /* Hết file, không cần load */
                 preload_requested_for_A = false;
                 need_load_A = false;
             }
         }
     }
 
-    // Kiểm tra nếu có sự kiện LOAD_MISS (ưu tiên hơn preload)
+    /* Kiểm tra nếu có sự kiện LOAD_MISS (ưu tiên hơn preload) */
     EventBits_t bits = xEventGroupGetBits(double_buffer_event);
-    if (bits & EVT_LOAD_MISS) {
-        // Có miss, cần load ngay buffer chứa frame đang cần.
-        // Tuy nhiên, ta không biết frame index nào bị miss (có thể lưu lại biến toàn cục)
-        // Ở đây giả sử OLED task sẽ gửi kèm index cần qua một cơ chế khác.
-        // Để đơn giản, ta sẽ load buffer còn lại chưa được dùng.
-        // Nếu muốn chính xác, cần thêm một biến missing_index.
-        // Cải tiến: Thay vì dùng EVT_LOAD_MISS riêng, ta dùng chung cơ chế preload và flip.
-        // Nhưng để đúng yêu cầu, ta xử lý:
+    if (bits & EVT_LOAD_MISS) 
+    {
+        /* Có miss, cần load ngay buffer chứa frame đang cần.
+        Tuy nhiên, ta không biết frame index nào bị miss (có thể lưu lại biến toàn cục)
+        Ở đây giả sử OLED task sẽ gửi kèm index cần qua một cơ chế khác.
+        Để đơn giản, ta sẽ load buffer còn lại chưa được dùng.
+        Nếu muốn chính xác, cần thêm một biến missing_index.
+        Cải tiến: Thay vì dùng EVT_LOAD_MISS riêng, ta dùng chung cơ chế preload và flip.
+        Nhưng để đúng yêu cầu, ta xử lý: */
         if (!readyA && !usingA) {
             need_load_A = true;
             // load index sẽ được tính từ yêu cầu của OLED, nhưng ở đây ta bỏ qua.

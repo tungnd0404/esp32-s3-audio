@@ -7,6 +7,7 @@
 #include "oled.h"
 #include "menu.h"
 #include "button.h"
+#include "player_manager.h"
 
 SSD1306_t dev;
 
@@ -25,15 +26,16 @@ void app_main(void)
     /* ssd1306_clear_screen(&dev, false);
     ssd1306_display_text(&dev, 4, "Hello", 5, false); */
 
+    /* button ini nên để init sau cùng tránh quá trình boot user giữ nút */
     /* button init */
     button_init();
 
     /* start run task */
-   xTaskCreatePinnedToCore(sdcard_task, "sdcard_task", 4096, &dev, 5, NULL, 1);
+   xTaskCreatePinnedToCore(sdcard_task, "sdcard_task", 4096, &dev, 5, &sd_taskHandle, 1);
 
-    xTaskCreatePinnedToCore(button_task, "button_task", 4096, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(player_manager_task, "player_manager_task", 4096, NULL, 5, &xPlayerManagerTaskHandle, 1);
 
-    xTaskCreatePinnedToCore(oled_task, "oled_task", 4096, &dev, 5, NULL, 1);
+    xTaskCreatePinnedToCore(oled_task, "oled_task", 4096, &dev, 5, &oled_taskHandle, 1);
 
     /* never to jumb */
     while(1);

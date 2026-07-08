@@ -23,6 +23,8 @@ typedef struct {
 extern song_info_t song_list[MAX_SONGS];
 extern uint16_t song_count;
 
+extern TaskHandle_t sd_taskHandle;
+
 // API
 esp_err_t sdcard_mount(void);
 void scan_sdcard_and_create_db(const char *base_path);

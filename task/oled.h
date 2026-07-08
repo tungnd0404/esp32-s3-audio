@@ -8,6 +8,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+/* task handler oled_task */
+extern TaskHandle_t oled_taskHandle;
 
 void oled_init(SSD1306_t * dev);
 void oled_task(void *pvParameters);

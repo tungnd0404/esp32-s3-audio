@@ -24,3 +24,13 @@ khi đang phát nhạc. bấm 2 lần play/pause để quay lại menu nhưng nh
 
 
 chỉ cần 1 buffer lưu frame. sd task đọc thẻ nhớ sau 50ms. thuật toán virtualTime thay đổi thì sd đọc. khi ghi xong thì báo cho oled qua 1 biến ready. oled check biến và phát luôn. nên đọc trước sd tầm 5ms virtualTime + 5ms
+
+
+
+GPIO ISR
+    |
+    v
+player_manager_task
+   |      |       |
+   v      v       v
+sd_task mp3_task oled_task

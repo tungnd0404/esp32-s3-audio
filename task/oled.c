@@ -1,9 +1,13 @@
 #include "ssd1306.h"
 #include "oled.h"
-#include "button.h"
+#include "player_manager.h"
 #include "menu.h"
 #include "double_buffer.h"
 #include "sync_frame.h"
+
+
+/* task handler oled_task */
+TaskHandle_t oled_taskHandle = NULL;
 
 static uint8_t frame[FRAME_SIZE];
 
@@ -25,24 +29,19 @@ static void oled_handle(SSD1306_t *dev)
 {
     if (stateMain == STATE_MENU)
     {
-        switch (stateButton) {
+        switch (stateButton) 
+        {
         case STATE_UP:
-            cursor--;
-            if (cursor < 0) {
-                cursor = song_count - 1;
-            }
             update_scroll();
             draw_menu(dev);
+            /* Update trạng thái button */
             stateButton = STATE_IDLE;
             break;
 
         case STATE_DOWN:
-            cursor++;
-            if (cursor >= song_count) {
-                cursor = 0;
-            }
             update_scroll();
             draw_menu(dev);
+            /* Update trạng thái button */
             stateButton = STATE_IDLE;
             break;
 
@@ -52,11 +51,11 @@ static void oled_handle(SSD1306_t *dev)
 
         case STATE_IDLE:
         default:
-            // không làm gì
+            /* không làm gì */
             break;
         }
     }
-    // state playing
+    /* State playing */
     else
     {
         switch (stateButton) {
