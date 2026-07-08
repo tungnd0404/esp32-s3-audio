@@ -1,28 +1,48 @@
 #ifndef BUTTON_H
 #define BUTTON_H
 
+/* ===================================================
+ *  INCLUDE FILES
+ * =================================================== */
+
 #include <stdint.h>
 #include <stdbool.h>
 #include "driver/gpio.h"
 #include "config.h"
-/* #include "freertos/FreeRTOS.h"
+#include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
+
+/* ===================================================
+ *  TYPE DEFINITIONS
+ * =================================================== */
+
+/* Sự kiện nút bấm */
+typedef enum {
+    BTN_EVENT_NEXT,
+    BTN_EVENT_PREV,
+    BTN_EVENT_PLAY,
+    BTN_EVENT_MAX
+} Button_EventType_e;
+
+/* ===================================================
+ *  GLOBAL FUNCTION
+ * =================================================== */
+
+/**
+ * @brief Button_Init
+ * Khởi tạo nút bấm
+ * @param
+ * @return
  */
+void Button_Init();
 
+/* ===================================================
+ *  ISR
+ * =================================================== */
 
+void IRAM_ATTR Button_NextISR(void *arg);
+void IRAM_ATTR Button_PrevISR(void *arg);
+void IRAM_ATTR Button_PlayISR(void *arg);
 
-
-/* ==================== API công khai ==================== */
-/* Khởi tạo nút bấm */
-void button_init();
-
-/* ==================== ISR ==================== */
-/* ISR */
-void IRAM_ATTR button_nextISR(void *arg);
-void IRAM_ATTR button_prevISR(void *arg);
-void IRAM_ATTR button_playISR(void *arg);
-
-/* ==================== Global variable =================== */
-extern QueueHandle_t state_button_event_queue;
-
-#endif
+#endif /* BUTTON_H */

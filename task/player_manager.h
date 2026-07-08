@@ -1,9 +1,9 @@
+#ifndef PLAYER_MANAGER_H
+#define PLAYER_MANAGER_H
+
 /* ===================================================
  *  INCLUDE FILES
  * =================================================== */
-
-#ifndef PLAYER_MANAGER_H
-#define PLAYER_MANAGER_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -15,28 +15,34 @@
 /* ===================================================
  *  MACROS / DEFINES
  * =================================================== */
+
 #define BTN1_BIT   BIT0
 #define BTN2_BIT   BIT1
 #define BTN3_BIT   BIT2
 
 /* ===================================================
- *  TYPE DEFINITIONS
- * =================================================== */
-
-
-/* ===================================================
  *  GLOBAL VARIABLES
  * =================================================== */
-extern TaskHandle_t player_manager_task_handle;
+
+extern TaskHandle_t xPlayerManagerTaskHandle;
 
 /* ===================================================
  *  GLOBAL FUNCTION
  * =================================================== */
+
 /**
- * @brief player_manager_task
+ * @brief PlayerManager_Init
+ * Khởi tạo player manager
  * @param
- * @return 
+ * @return
  */
-void player_manager_task(void *arg);
+void PlayerManager_Init(void);
+
+/**
+ * @brief PlayerManager_Task
+ * @param
+ * @return
+ */
+void PlayerManager_Task(void *arg);
 
 #endif /* PLAYER_MANAGER_H */

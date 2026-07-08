@@ -12,26 +12,13 @@
  /* Debounce delay (ms) */
 #define DEBOUNCE_MS             80U
 #define DEBOUNCE_TICKS          (DEBOUNCE_MS / portTICK_PERIOD_MS)
-#define DOUBLE_CLICK_TIME       pdMS_TO_TICKS(300)
-
-/* ===================================================
- *  TYPE DEFINITIONS
- * =================================================== */
-
- /* trạng thái nút bấm */
-typedef enum {
-    BTN_EVENT_NEXT,
-    BTN_EVENT_PREV,
-    BTN_EVENT_PLAY,
-    BTN_EVENT_MAX
-} Button_EventType_e;
 
 /* ===================================================
  *  LOCAL VARIABLES
  * =================================================== */
 
 /* Array cho Timestamp chống rung */
-volatile uint32_t gau32LastTickTime[BTN_EVENT_MAX] = 0;
+volatile uint32_t gau32LastTickTime[BTN_EVENT_MAX] = {0};
 
 /* ===================================================
  *  ISR
@@ -41,21 +28,20 @@ volatile uint32_t gau32LastTickTime[BTN_EVENT_MAX] = 0;
  * @param
  * @return 
  */
-/* ---------------------------------------------------------
-ISR: NÚT NEXT
---------------------------------------------------------- */
+/* ===================================================
+ *  ISR NEXT
+ * =================================================== */
 void IRAM_ATTR Button_NextISR(void *arg)
 {
     uint32_t lu32Now = xTaskGetTickCountFromISR();
-    Button_EventType_e leButtonEvent;
 
-    if (lnow - gau32LastTickTime[BTN_EVENT_NEXT] > DEBOUNCE_TICKS)
+    /* Chống rung nút bấm */
+    if (lu32Now - gau32LastTickTime[BTN_EVENT_NEXT] > DEBOUNCE_TICKS)
     {
-        leButtonEvent = BTN_EVENT_NEXT;
-
+        /* Cờ báo có task ưu tiên cao hơn được đánh thức sau khi notify hay không */
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN_EVENT_NEXT, eSetValueWithOverwrite, NULL);
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN_EVENT_NEXT, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
 
         if (xHigherPriorityTaskWoken) 
         {
@@ -70,21 +56,20 @@ void IRAM_ATTR Button_NextISR(void *arg)
  * @param
  * @return 
  */
-/* ---------------------------------------------------------
-ISR: NÚT PREV
---------------------------------------------------------- */
+/* ===================================================
+ *  ISR PREV
+ * =================================================== */
 void IRAM_ATTR Button_PrevISR(void *arg)
 {
     uint32_t lu32Now = xTaskGetTickCountFromISR();
-    Button_EventType_e leButtonEvent;
 
+    /* Chống rung nút bấm */
     if (lu32Now - gau32LastTickTime[BTN_EVENT_PREV] > DEBOUNCE_TICKS)
     {
-        leButtonEvent = BTN_EVENT_PREV;
-
+        /* Cờ báo có task ưu tiên cao hơn được đánh thức sau khi notify hay không */
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-        xTaskNotifyFromISR(xPlayerManagerTaskHandle, EVENT_PREV, eSetValueWithOverwrite, NULL);
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN_EVENT_PREV, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
 
         if (xHigherPriorityTaskWoken) 
         {
@@ -95,40 +80,42 @@ void IRAM_ATTR Button_PrevISR(void *arg)
 }
 
 /**
- * @brief button_playISR
+ * @brief Button_PlayISR
  * @param
  * @return 
  */
-/* ---------------------------------------------------------
-ISR: NÚT PLAY
---------------------------------------------------------- */
-void IRAM_ATTR button_playISR(void *arg)
+/* ===================================================
+ *  ISR PLAY
+ * =================================================== */
+void IRAM_ATTR Button_PlayISR(void *arg)
 {
-    uint32_t now = xTaskGetTickCountFromISR();
+    uint32_t lu32Now = xTaskGetTickCountFromISR();
 
-    if (now - last_tick_play > DEBOUNCE_TICKS)
+    /* Chống rung nút bấm */
+    if (lu32Now - gau32LastTickTime[BTN_EVENT_PLAY] > DEBOUNCE_TICKS)
     {
-        button_event evt = EVENT_PLAY;
-
+        /* Cờ báo có task ưu tiên cao hơn được đánh thức sau khi notify hay không */
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-        xTaskNotifyFromISR(player_manager_task_handle, EVENT_PLAY, eSetValueWithOverwrite, NULL);
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN_EVENT_PLAY, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
 
         if (xHigherPriorityTaskWoken) 
         {
             portYIELD_FROM_ISR();
         }
     }
-    last_tick_play = now;
+    gau32LastTickTime[BTN_EVENT_PLAY] = lu32Now;
 }
 
-/* ==================== API công khai ==================== */
+/* ===================================================
+ *  GLOBAL FUNCTION
+ * =================================================== */
 /**
  * @brief Khởi tạo button
  * @param
  * @return 
  */
-void button_init()
+void Button_Init()
 {
     /* khởi tạo config */
     gpio_config_t cfg = {
@@ -141,13 +128,13 @@ void button_init()
         .pull_up_en = GPIO_PULLUP_ENABLE,
     };
 
-    /* config GPIO */
+    /* Config GPIO */
     ESP_ERROR_CHECK(gpio_config(&cfg));
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
 
-    /* đăng ký ngắt */
-    gpio_isr_handler_add(BTN_NEXT, button_nextISR, NULL);
-    gpio_isr_handler_add(BTN_PREV, button_prevISR, NULL);
-    gpio_isr_handler_add(BTN_PLAY, button_playISR, NULL);
+    /* Đăng ký ngắt */
+    gpio_isr_handler_add(BTN_NEXT_PIN, Button_NextISR, NULL);
+    gpio_isr_handler_add(BTN_PREV_PIN, Button_PrevISR, NULL);
+    gpio_isr_handler_add(BTN_PLAY_PIN, Button_PlayISR, NULL);
 }
 

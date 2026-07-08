@@ -12,11 +12,14 @@
  *  MACROS / DEFINES
  * =================================================== */
 
+/* Thời gian tối đa giữa 2 lần click để tính là double click */
+#define DOUBLE_CLICK_TIME       pdMS_TO_TICKS(300)
+
 /* ===================================================
  *  TYPE DEFINITIONS
  * =================================================== */
 
-/* trạng thái hệ thống */
+/* trạng thái giao diện */
 typedef enum { 
     MAIN_STATE_MENU,
     MAIN_STATE_PLAYING
@@ -55,7 +58,7 @@ QueueHandle_t xMp3Queue;
 TaskHandle_t xPlayerManagerTaskHandle = NULL;
 
 /* state system */
-PlayerManager__PlayerContextType_s gPlayerContext;
+PlayerManager__PlayerContextType_s gsPlayerContext;
 
 /* ===================================================
  *  LOCAL VARIABLES
@@ -68,7 +71,7 @@ PlayerManager__PlayerContextType_s gPlayerContext;
  * @brief Update cursor position
  * @param cursor: vị trí hiện tại
  * @param totalItem: tổng số item
- * @param direction: hướng di chuyển (BUTTON_STATE_NEXT: next, BUTTON_STATE_PREV: prev)
+ * @param direction: hướng di chuyển (BTN_STATE_NEXT: next, BTN_STATE_PREV: prev)
  * @return cursor đã được update
  */
 static uint32_t PlayerManager_Update_Cursor(uint32_t cursor, uint32_t totalItem, uint8_t direction)
@@ -79,7 +82,7 @@ static uint32_t PlayerManager_Update_Cursor(uint32_t cursor, uint32_t totalItem,
         return 0;
     }
     /* Update cursor position */
-    if (direction == BUTTON_STATE_NEXT) /* Next */
+    if (direction == BTN_STATE_NEXT) /* Next */
     {
         cursor = (cursor + 1U) % totalItem;
     }
@@ -101,11 +104,11 @@ static uint32_t PlayerManager_Update_Cursor(uint32_t cursor, uint32_t totalItem,
  * @param
  * @return 
  */
-void PlayerManager_Init()
+void PlayerManager_Init(void)
 {
     /* khởi tạo state system */
-    gPlayerContext.mainState = MAIN_STATE_MENU;
-    gPlayerContext.buttonState = BUTTON_STATE_IDLE;
+    gsPlayerContext.mainState = MAIN_STATE_MENU;
+    gsPlayerContext.buttonState = BTN_STATE_IDLE;
 
     /* khởi tạo double buffer, ring buffer */
     /* double_buffer_init(); */
@@ -134,25 +137,27 @@ void PlayerManager_Init()
  */
 void PlayerManager_Task(void *arg)
 {
-    uint32_t lbutton_evt;
-    while (1) 
+    uint32_t lu32button_evt;
+    static TickType_t lu32LastClickTime = 0;
+
+    while (1)
     {
         /* Đợi notification từ button */
-        if (xTaskNotifyWait(0, UINT32_MAX, &button_evt, portMAX_DELAY) == pdTRUE)
+        if (xTaskNotifyWait(0, UINT32_MAX, &lu32button_evt, portMAX_DELAY) == pdTRUE)
         {
-            switch (lbutton_evt) 
+            switch (lu32button_evt)
             {
-                case EVENT_NEXT:
+                case BTN_EVENT_NEXT:
                     /* xử lý next */
-                    if (gPlayerContext.mainState == STATE_MENU)
+                    if (gsPlayerContext.mainState == MAIN_STATE_MENU)
                     {
                         #if defined DEVELOPER_CONFIGURATION
                             printf("BUTTON UP\n");
                         #endif
                         /* update cursor */
-                        gPlayerContext.cursor = PlayerManager_Update_Cursor((uint32_t)gPlayerContext.cursor, (uint32_t)gPlayerContext.totalSong, BUTTON_STATE_PREV);
+                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, BTN_STATE_PREV);
                         /* Update trạng thái button */
-                        gPlayerContext.buttonState = BUTTON_STATE_UP;
+                        gsPlayerContext.buttonState = BTN_STATE_UP;
                         /* trigger notification */
                         xTaskNotifyGive(oled_taskHandle);
                     }
@@ -162,24 +167,24 @@ void PlayerManager_Task(void *arg)
                             printf("BUTTON NEXT\n");
                         #endif
                         /* Update trạng thái button */
-                        stateButton = STATE_NEXT;
+                        gsPlayerContext.buttonState = BTN_STATE_NEXT;
                         /* update cursor */
-                        cursor = update_cursor(cursor, song_count, +1);
+                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, BTN_STATE_NEXT);
                         /* update current song */
-                        current_song = cursor;
+                        gsPlayerContext.currentSong = gsPlayerContext.cursor;
                     }
                     break;
-                case EVENT_PREV:
+                case BTN_EVENT_PREV:
                     /* xử lý prev */
-                    if (stateMain == STATE_MENU)
+                    if (gsPlayerContext.mainState == MAIN_STATE_MENU)
                     {
                         #if defined DEVELOPER_CONFIGURATION
                         printf("BUTTON DOWN\n");
                         #endif
                         /* update cursor */
-                        cursor = update_cursor(cursor, song_count, +1);
+                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, BTN_STATE_NEXT);
                         /* Update trạng thái button */
-                        stateButton = STATE_DOWN;
+                        gsPlayerContext.buttonState = BTN_STATE_DOWN;
                     }
                     else
                     {
@@ -187,43 +192,43 @@ void PlayerManager_Task(void *arg)
                         printf("BUTTON PREV\n");
                         #endif
                         /* Update trạng thái button */
-                        stateButton = STATE_PREV;
+                        gsPlayerContext.buttonState = BTN_STATE_PREV;
                         /* update cursor */
-                        cursor = update_cursor(cursor, song_count, -1);
+                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, BTN_STATE_PREV);
                         /* update current song */
-                        current_song = cursor;
+                        gsPlayerContext.currentSong = gsPlayerContext.cursor;
                     }
                     break;
-                case EVENT_PLAY:
+                case BTN_EVENT_PLAY:
                 {
                     TickType_t now = xTaskGetTickCount();
-                    if (stateMain == STATE_MENU)
+                    if (gsPlayerContext.mainState == MAIN_STATE_MENU)
                     {
                         #if defined DEVELOPER_CONFIGURATION
                         printf("BUTTON SELECT AND START PLAYING\n");
                         #endif
                         /* Update trạng thái Main */
-                        stateMain = STATE_PLAYING;
+                        gsPlayerContext.mainState = MAIN_STATE_PLAYING;
                         /* Update trạng thái button */
-                        stateButton = STATE_PLAY_NEW;
+                        gsPlayerContext.buttonState = BTN_STATE_PLAY_NEW;
                         /* update current song */
-                        current_song = cursor;
+                        gsPlayerContext.currentSong = gsPlayerContext.cursor;
                     }
-                    else if (stateMain == STATE_PLAYING)
+                    else if (gsPlayerContext.mainState == MAIN_STATE_PLAYING)
                     {
                         /* CHECK DOUBLE CLICK */
-                        if ((last_click_time != 0) && ((now - last_click_time) < DOUBLE_CLICK_TIME))
+                        if ((lu32LastClickTime != 0) && ((now - lu32LastClickTime) < DOUBLE_CLICK_TIME))
                         {
                             #if defined DEVELOPER_CONFIGURATION
                             printf("DOUBLE CLICK -> MENU\n");
                             #endif
                             /* Double click → về MENU */
                             /* Update trạng thái Main */
-                            stateMain = STATE_MENU;
+                            gsPlayerContext.mainState = MAIN_STATE_MENU;
                             /* Update trạng thái button */
-                            stateButton = STATE_IDLE;
+                            gsPlayerContext.buttonState = BTN_STATE_IDLE;
                             /* Reset tránh lặp */
-                            last_click_time = 0; 
+                            lu32LastClickTime = 0;
                         }
                         else
                         {
@@ -231,13 +236,13 @@ void PlayerManager_Task(void *arg)
                             #if defined DEVELOPER_CONFIGURATION
                             printf("SINGLE CLICK\n");
                             #endif
-                            if (stateButton == STATE_PLAY)
+                            if (gsPlayerContext.buttonState == BTN_STATE_PLAY)
                             {
                                 #if defined DEVELOPER_CONFIGURATION
                                 printf("PAUSE\n");
                                 #endif
                                 /* Update trạng thái button */
-                                stateButton = STATE_PAUSE;
+                                gsPlayerContext.buttonState = BTN_STATE_PAUSE;
                             }
                             else
                             {
@@ -245,10 +250,10 @@ void PlayerManager_Task(void *arg)
                                 printf("PLAY\n");
                                 #endif
                                 /* Update trạng thái button */
-                                stateButton = STATE_PLAY;
+                                gsPlayerContext.buttonState = BTN_STATE_PLAY;
                             }
                             /* Update thời gian click cuối cùng */
-                            last_click_time = now;
+                            lu32LastClickTime = now;
                         }
                     }
                     break;

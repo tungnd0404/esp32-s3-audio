@@ -28,12 +28,15 @@ void app_main(void)
 
     /* button ini nên để init sau cùng tránh quá trình boot user giữ nút */
     /* button init */
-    button_init();
+    Button_Init();
+
+    /* player manager init */
+    PlayerManager_Init();
 
     /* start run task */
    xTaskCreatePinnedToCore(sdcard_task, "sdcard_task", 4096, &dev, 5, &sd_taskHandle, 1);
 
-    xTaskCreatePinnedToCore(player_manager_task, "player_manager_task", 4096, NULL, 5, &xPlayerManagerTaskHandle, 1);
+    xTaskCreatePinnedToCore(PlayerManager_Task, "player_manager_task", 4096, NULL, 5, &xPlayerManagerTaskHandle, 1);
 
     xTaskCreatePinnedToCore(oled_task, "oled_task", 4096, &dev, 5, &oled_taskHandle, 1);
 
