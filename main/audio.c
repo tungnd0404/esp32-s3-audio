@@ -21,7 +21,7 @@ void app_main(void)
     read_db_file();
 
     /* oled init */
-    oled_init(&dev);
+    Oled_Init(&dev);
     /* display logo */
     /* ssd1306_clear_screen(&dev, false);
     ssd1306_display_text(&dev, 4, "Hello", 5, false); */
@@ -38,7 +38,7 @@ void app_main(void)
 
     xTaskCreatePinnedToCore(PlayerManager_Task, "player_manager_task", 4096, NULL, 5, &xPlayerManagerTaskHandle, 1);
 
-    xTaskCreatePinnedToCore(oled_task, "oled_task", 4096, &dev, 5, &oled_taskHandle, 1);
+    xTaskCreatePinnedToCore(Oled_Task, "oled_task", 4096, &dev, 5, &xOledTaskHandle, 1);
 
     /* never to jumb */
     while(1);

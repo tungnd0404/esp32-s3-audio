@@ -1,49 +1,107 @@
+/* ===================================================
+ *  INCLUDE FILES
+ * =================================================== */
+
 #include <stdio.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "menu.h"
+#include "player_manager.h"
 
-// ===== MENU DEFAULT 20 ITEMS =====
+/* ===================================================
+ *  MACROS / DEFINES
+ * =================================================== */
 
-volatile int start_index = 0;   // vị trí dòng đầu tiên trong vùng hiển thị
+/* Màn hình 128x64, font 8x8 -> hiển thị tối đa 8 dòng cùng lúc */
+#define MENU_MAX_DISPLAY_LINES      8
 
-// ================== VẼ MENU ==================
-void draw_menu(SSD1306_t *dev) 
+/* ===================================================
+ *  GLOBAL VARIABLES
+ * =================================================== */
+
+/* Vị trí dòng đầu tiên trong vùng hiển thị (cửa sổ cuộn menu).
+   Kiểu int32_t (có dấu) vì thuật toán Menu_UpdateScroll có phép trừ có thể ra số âm tạm thời. */
+static int32_t gi32StartIndex = 0;
+
+/* ===================================================
+ *  GLOBAL FUNCTION
+ * =================================================== */
+
+/**
+ * @brief Menu_Draw
+ * Vẽ danh sách bài hát lên màn hình OLED, đánh dấu vị trí cursor hiện tại (gsPlayerContext.cursor)
+ * @param dev: con trỏ device SSD1306
+ * @return
+ */
+void Menu_Draw(SSD1306_t *dev)
 {
+    /* Cursor dùng chung với player_manager, không giữ bản sao riêng trong menu.c.
+       Luôn là chỉ số hợp lệ (không âm) nên giữ nguyên kiểu uint32_t như gsPlayerContext.cursor */
+    uint32_t lu32Cursor = gsPlayerContext.cursor;
+
     ssd1306_clear_screen(dev, false);
 
-    int max_display = 8; // Màn hình 128x64 => 8 dòng (font 8x8) 
-
-    for (int i = 0; i < max_display; i++) 
+    for (uint32_t lu32Line = 0; lu32Line < MENU_MAX_DISPLAY_LINES; lu32Line++)
     {
-        int item_index = start_index + i;
-        if (item_index >= song_count) break;
+        /* Menu_UpdateScroll luôn đảm bảo gi32StartIndex >= 0 trước khi Draw được gọi */
+        uint32_t lu32ItemIndex = (uint32_t)gi32StartIndex + lu32Line;
+        if (lu32ItemIndex >= song_count) break;
 
-        char line[32];
+        char lacLine[32];
 
-        if (item_index == cursor)
-            snprintf(line, sizeof(line), "> %.27s", song_list[item_index].song_name);
+        if (lu32ItemIndex == lu32Cursor)
+        {
+            snprintf(lacLine, sizeof(lacLine), "> %.27s", song_list[lu32ItemIndex].song_name);
+        }
         else
-            snprintf(line, sizeof(line), "  %.27s", song_list[item_index].song_name);
+        {
+            snprintf(lacLine, sizeof(lacLine), "  %.27s", song_list[lu32ItemIndex].song_name);
+        }
 
-        ssd1306_display_text(dev, i, line, strlen(line), false);
+        ssd1306_display_text(dev, lu32Line, lacLine, strlen(lacLine), false);
     }
 }
 
-// ================== CUỘN MENU ==================
-void update_scroll() 
+/**
+ * @brief Menu_UpdateScroll
+ * Cập nhật lại gi32StartIndex để cursor hiện tại luôn nằm trong vùng hiển thị
+ * @param
+ * @return
+ */
+void Menu_UpdateScroll(void)
 {
-    int max_display = 8;
+    /* Cursor dùng chung với player_manager. Ở đây cần trừ nên phải là int32_t có dấu,
+       khác với Menu_Draw (chỉ so sánh bằng nên giữ uint32_t) */
+    int32_t li32Cursor = (int32_t)gsPlayerContext.cursor;
 
-    if (cursor < start_index)
-        start_index = cursor;
+    if (li32Cursor < gi32StartIndex)
+    {
+        gi32StartIndex = li32Cursor;
+    }
 
-    if (cursor >= start_index + max_display)
-        start_index = cursor - max_display + 1;
+    if (li32Cursor >= gi32StartIndex + MENU_MAX_DISPLAY_LINES)
+    {
+        gi32StartIndex = li32Cursor - MENU_MAX_DISPLAY_LINES + 1;
+    }
 
-    if (start_index < 0) start_index = 0;
-    if (start_index > song_count - max_display)
-        start_index = song_count - max_display;
+    if (gi32StartIndex < 0)
+    {
+        gi32StartIndex = 0;
+    }
+
+    /* Chỉ giới hạn theo song_count - MAX_LINES khi thực sự nhiều bài hơn số dòng hiển thị,
+       tránh (song_count - MENU_MAX_DISPLAY_LINES) âm khi danh sách ít bài hơn 1 màn hình */
+    if ((int32_t)song_count > MENU_MAX_DISPLAY_LINES)
+    {
+        int32_t li32MaxStartIndex = (int32_t)song_count - MENU_MAX_DISPLAY_LINES;
+        if (gi32StartIndex > li32MaxStartIndex)
+        {
+            gi32StartIndex = li32MaxStartIndex;
+        }
+    }
+    else
+    {
+        gi32StartIndex = 0;
+    }
 }
-

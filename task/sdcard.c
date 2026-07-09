@@ -268,7 +268,7 @@ void sdcard_task(void *pvParameters)
     while(1) 
     {
         /* lấy đường dẫn song */
-        get_song_by_index(cursor, &song);
+        get_song_by_index(gsPlayerContext.cursor, &song);
 
         /* reset double buffer */
         double_buffer_close();
