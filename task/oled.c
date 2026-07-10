@@ -28,6 +28,20 @@
 TaskHandle_t xOledTaskHandle = NULL;
 
 /* ===================================================
+ *  LOCAL TYPE DEFINITIONS
+ * =================================================== */
+
+/* Trạng thái hiển thị riêng của OLED, suy ra từ PlayerManager_ButtonStateType_e nhận được
+   qua notification. Chỉ dùng nội bộ oled.c để switch cho tường minh (đọc thẳng ra "đang vẽ
+   menu" hay "đang chạy animation"...), không phải kiểu dữ liệu đi qua kênh notification
+   (kênh truyền vẫn dùng thẳng PlayerManager_ButtonStateType_e, không thêm enum sự kiện riêng). */
+typedef enum {
+    OLED_DISPLAY_MENU,          /* Vẽ lại menu */
+    OLED_DISPLAY_SONG_CHANGED,  /* Đổi bài -> reset đồng bộ rồi chạy animation cho bài mới */
+    OLED_DISPLAY_PLAY_PAUSE     /* Tiếp tục/tạm dừng animation, không đổi bài */
+} Oled_DisplayStateType_e;
+
+/* ===================================================
  *  LOCAL VARIABLES
  * =================================================== */
 
@@ -37,6 +51,35 @@ static uint8_t gau8Frame[FRAME_SIZE];
 /* ===================================================
  *  LOCAL FUNCTION
  * =================================================== */
+
+/**
+ * @brief Oled_GetDisplayState
+ * Suy ra Oled_DisplayStateType_e tương ứng từ buttonState nhận được qua notification,
+ * gom các buttonState có cùng cách xử lý bên OLED vào chung 1 display state.
+ * @param buttonState: giá trị PlayerManager_ButtonStateType_e nhận từ PlayerManager_Task
+ * @return Oled_DisplayStateType_e tương ứng
+ */
+static Oled_DisplayStateType_e Oled_GetDisplayState(PlayerManager_ButtonStateType_e buttonState)
+{
+    switch (buttonState)
+    {
+        case BTN_STATE_NEXT:
+        case BTN_STATE_PREV:
+        case BTN_STATE_PLAY_NEW:
+            return OLED_DISPLAY_SONG_CHANGED;
+
+        case BTN_STATE_PLAY:
+        case BTN_STATE_PAUSE:
+            return OLED_DISPLAY_PLAY_PAUSE;
+
+        case BTN_STATE_UP:
+        case BTN_STATE_DOWN:
+        case BTN_STATE_BACK_MENU:
+        case BTN_STATE_IDLE:
+        default:
+            return OLED_DISPLAY_MENU;
+    }
+}
 
 /**
  * @brief Oled_DrawFrame
@@ -65,9 +108,10 @@ static void Oled_DrawFrame(SSD1306_t *dev, uint8_t *au8Frame)
  */
 static bool Oled_PlayAnimation(SSD1306_t *dev, uint32_t *pu32NotifyValue)
 {
-    /* Còn animation khi: đang ở màn hình PLAYING và button không phải PAUSE
-       (PLAY/PLAY_NEW/NEXT/PREV đều coi là đang chạy animation) */
-    while ((gsPlayerContext.mainState == MAIN_STATE_PLAYING) && (gsPlayerContext.buttonState != BTN_STATE_PAUSE))
+    /* Còn animation khi: đang ở màn hình PLAYING và playbackState không phải PAUSE.
+       Dùng playbackState (tồn tại liên tục) thay vì buttonState (chỉ tồn tại trong
+       khoảnh khắc xử lý 1 lần bấm nút rồi tự về IDLE) */
+    while ((gsPlayerContext.mainState == MAIN_STATE_PLAYING) && (gsPlayerContext.playbackState != PLAYBACK_STATE_PAUSE))
     {
         /* Check non-blocking (timeout = 0): có notification mới thì thoát ngay, không chờ */
         if (xTaskNotifyWait(0, UINT32_MAX, pu32NotifyValue, 0) == pdTRUE)
@@ -104,52 +148,93 @@ void Oled_Init(SSD1306_t *dev)
 
 /**
  * @brief Oled_Task
- * Task chính điều khiển màn hình OLED. Chờ Oled_EventType_e từ PlayerManager_Task
- * qua task notification thay vì tự poll trạng thái, để phản ứng ngay khi có sự kiện
- * và không tốn CPU khi không có gì thay đổi.
+ * Task chính điều khiển màn hình OLED.
+ *
+ * Cơ chế nhận sự kiện:
+ * - Không tự poll trạng thái theo chu kỳ, mà "ngủ" (xTaskNotifyWait, portMAX_DELAY) chờ
+ *   PlayerManager_Task gửi task notification, tiết kiệm CPU khi không có gì thay đổi và
+ *   phản ứng ngay lập tức khi có sự kiện.
+ * - Giá trị notification nhận được chính là gsPlayerContext.buttonState (kiểu
+ *   PlayerManager_ButtonStateType_e) tại thời điểm PlayerManager_Task gửi đi -> không cần
+ *   thêm 1 enum sự kiện riêng cho kênh notification giữa 2 task.
+ * - Giá trị đó được map qua Oled_GetDisplayState() sang Oled_DisplayStateType_e (state riêng
+ *   của OLED, chỉ dùng nội bộ file này) để switch bên dưới đọc tường minh theo đúng ý nghĩa
+ *   hiển thị, thay vì phải nhớ nhóm BTN_STATE_* nào ứng với hành vi nào.
+ *
+ * 3 nhánh xử lý theo Oled_DisplayStateType_e:
+ * - OLED_DISPLAY_MENU: cursor di chuyển hoặc double click thoát PLAYING về MENU
+ *   -> Menu_UpdateScroll() + Menu_Draw() vẽ lại danh sách bài hát.
+ * - OLED_DISPLAY_SONG_CHANGED: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
+ *   -> initSync() reset lại mốc đồng bộ thời gian giải mã, rồi chạy Oled_PlayAnimation().
+ * - OLED_DISPLAY_PLAY_PAUSE: bấm Play/Pause hoặc auto-return từ MENU về lại PLAYING, bài
+ *   không đổi -> chạy thẳng Oled_PlayAnimation(), không reset đồng bộ.
+ *
+ * Cơ chế lbHasPendingNotify: Oled_PlayAnimation() có thể thoát sớm vì vừa nhận 1 notification
+ * mới (thay vì thoát vì hết trạng thái PLAY) và đã đọc giá trị đó vào lu32NotifyValue. Nếu vòng
+ * lặp ngoài gọi xTaskNotifyWait() lần nữa ngay lúc đó thì giá trị vừa nhận sẽ bị mất (thay bằng
+ * giá trị chờ tiếp theo). lbHasPendingNotify = true báo cho vòng lặp biết: bỏ qua bước chờ,
+ * xử lý ngay lu32NotifyValue đang có sẵn ở vòng lặp kế tiếp.
+ *
  * @param pvParameters: con trỏ SSD1306_t* của màn hình, truyền vào lúc tạo task
- * @return
+ * @return không bao giờ return (vòng lặp vô hạn, đúng chuẩn 1 FreeRTOS task)
  */
 void Oled_Task(void *pvParameters)
 {
+    /* pvParameters được audio.c truyền vào lúc tạo task, thực chất là &dev (SSD1306_t)
+       khai báo global bên main -> ép kiểu lại để dùng xuyên suốt task */
     SSD1306_t *dev = (SSD1306_t *)pvParameters;
+    /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
+       (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
     uint32_t lu32NotifyValue;
-    /* true khi lu32NotifyValue đã có sẵn 1 sự kiện cần xử lý (do Oled_PlayAnimation vừa trả về),
-       lúc đó không cần chờ notification mới nữa mà xử lý ngay ở vòng lặp kế tiếp */
-    bool lbHasPendingEvent = false;
+    /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32NotifyValue đã có sẵn
+       1 giá trị mới cần xử lý ngay (do Oled_PlayAnimation vừa trả về) */
+    bool lbHasPendingNotify = false;
 
-    /* Vẽ menu lần đầu khi khởi động */
+    /* Vẽ menu lần đầu khi khởi động, trước khi vào vòng lặp chính */
     Menu_Draw(dev);
 
+    /* Vòng lặp chính của task, chạy vô hạn cho tới khi thiết bị tắt nguồn */
     while (1)
     {
-        /* Chỉ block chờ notification mới khi chưa có sẵn sự kiện nào đang chờ xử lý */
-        if (!lbHasPendingEvent)
+        /* Check xem có notify nào đang pending không? nếu không thì chờ notify mới,
+           chờ vô thời hạn (portMAX_DELAY) vì task không có việc gì khác để làm */
+        if (lbHasPendingNotify == false)
         {
             xTaskNotifyWait(0, UINT32_MAX, &lu32NotifyValue, portMAX_DELAY);
         }
-        lbHasPendingEvent = false;
+        /* Dùng xong cờ pending cho vòng lặp này -> reset về false, chỉ set lại true
+           bên dưới nếu Oled_PlayAnimation() báo còn notify chưa xử lý */
+        lbHasPendingNotify = false;
 
-        switch ((Oled_EventType_e)lu32NotifyValue)
+        /* Map buttonState vừa nhận sang display state riêng của OLED rồi rẽ nhánh xử lý */
+        switch (Oled_GetDisplayState((PlayerManager_ButtonStateType_e)lu32NotifyValue))
         {
-            case OLED_EVENT_MENU_DRAW:
+            case OLED_DISPLAY_MENU:
                 /* menu.c tự đọc gsPlayerContext.cursor, không cần đồng bộ thủ công ở đây nữa */
+                /* Tính lại cửa sổ cuộn (gi32StartIndex) theo cursor hiện tại */
                 Menu_UpdateScroll();
+                /* Vẽ lại toàn bộ danh sách bài hát lên màn hình */
                 Menu_Draw(dev);
                 break;
 
-            case OLED_EVENT_SONG_CHANGED:
-                /* Bài mới -> reset lại mốc thời gian đồng bộ trước khi chạy animation */
+            case OLED_DISPLAY_SONG_CHANGED:
+                /* Bài mới -> reset mốc thời gian đồng bộ giải mã mp3 về 0 trước khi vẽ animation,
+                   tránh dùng nhầm mốc thời gian của bài phát trước đó */
                 initSync();
-                lbHasPendingEvent = Oled_PlayAnimation(dev, &lu32NotifyValue);
+                /* Chạy vòng vẽ animation cho bài mới; nếu bị ngắt giữa chừng do có notify khác
+                   tới thì lbHasPendingNotify sẽ được set true để xử lý tiếp ở vòng lặp kế */
+                lbHasPendingNotify = Oled_PlayAnimation(dev, &lu32NotifyValue);
                 break;
 
-            case OLED_EVENT_PLAY_PAUSE:
-                /* Không đổi bài -> chạy tiếp (hoặc dừng) animation dựa theo buttonState hiện tại */
-                lbHasPendingEvent = Oled_PlayAnimation(dev, &lu32NotifyValue);
+            case OLED_DISPLAY_PLAY_PAUSE:
+                /* Không đổi bài nên không cần initSync() lại -> chạy thẳng animation,
+                   Oled_PlayAnimation() tự đọc gsPlayerContext.playbackState để biết
+                   nên tiếp tục vẽ (PLAY) hay dừng ngay vòng lặp đầu tiên (PAUSE) */
+                lbHasPendingNotify = Oled_PlayAnimation(dev, &lu32NotifyValue);
                 break;
 
             default:
+                /* Không có case nào khớp (về lý thuyết không xảy ra) -> bỏ qua */
                 break;
         }
     }

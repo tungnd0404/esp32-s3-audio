@@ -13,17 +13,6 @@
 #include "freertos/task.h"
 
 /* ===================================================
- *  TYPE DEFINITIONS
- * =================================================== */
-
-/* Loại sự kiện gửi cho Oled_Task qua task notification */
-typedef enum {
-    OLED_EVENT_MENU_DRAW,   /* Cursor menu di chuyển -> vẽ lại menu */
-    OLED_EVENT_SONG_CHANGED,  /* Bài hát thay đổi -> reset đồng bộ, load lại double buffer cho bài mới */
-    OLED_EVENT_PLAY_PAUSE     /* Play/Pause đổi trạng thái, hoặc quay lại màn hình playing của bài đang phát -> không load lại bài, chỉ tiếp tục/tạm dừng animation */
-} Oled_EventType_e;
-
-/* ===================================================
  *  GLOBAL VARIABLES
  * =================================================== */
 
@@ -44,7 +33,8 @@ void Oled_Init(SSD1306_t *dev);
 
 /**
  * @brief Oled_Task
- * Task điều khiển màn hình OLED, nhận Oled_EventType_e từ PlayerManager_Task qua task notification
+ * Task điều khiển màn hình OLED, nhận PlayerManager_ButtonStateType_e từ PlayerManager_Task
+ * qua task notification (dùng chung thẳng enum này, không cần thêm 1 enum sự kiện riêng cho OLED)
  * @param pvParameters: con trỏ SSD1306_t* của màn hình, truyền vào lúc tạo task
  * @return
  */

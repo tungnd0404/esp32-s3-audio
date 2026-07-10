@@ -30,7 +30,10 @@ typedef enum {
     MAIN_STATE_PLAYING
 } PlayerManager_MainStateType_e;
 
-/* Trạng thái nút bấm */
+/* Trạng thái nút bấm: ghi lại hành động vừa xảy ra do 1 lần bấm nút gây ra.
+   Luôn tự về BTN_STATE_IDLE ngay sau khi hành động được xử lý xong (button bấm rồi nhả,
+   không giữ nguyên giá trị này liên tục) -> không dùng field này để biết nhạc đang PLAY hay
+   PAUSE, việc đó do PlayerManager_PlaybackStateType_e/playbackState đảm nhiệm. */
 typedef enum {
     BTN_STATE_UP,
     BTN_STATE_DOWN,
@@ -39,14 +42,26 @@ typedef enum {
     BTN_STATE_PAUSE,
     BTN_STATE_NEXT,
     BTN_STATE_PREV,
+    BTN_STATE_BACK_MENU,   /* Double click khi đang PLAYING -> thoát về màn hình MENU */
     BTN_STATE_IDLE
 } PlayerManager_ButtonStateType_e;
+
+/* Trạng thái phát nhạc hiện tại, tồn tại liên tục (không tự về idle) cho tới khi
+   người dùng bấm PLAY để đổi trạng thái. Oled_PlayAnimation dựa vào field này để biết
+   có nên tiếp tục vẽ animation hay không, thay vì dựa vào buttonState (vốn chỉ tồn tại
+   trong khoảnh khắc xử lý 1 lần bấm nút). */
+typedef enum {
+    PLAYBACK_STATE_IDLE,   /* Chưa từng chọn bài nào để phát */
+    PLAYBACK_STATE_PLAY,
+    PLAYBACK_STATE_PAUSE
+} PlayerManager_PlaybackStateType_e;
 
 /* State toàn hệ thống player */
 typedef struct
 {
     PlayerManager_MainStateType_e mainState;
     PlayerManager_ButtonStateType_e buttonState;
+    PlayerManager_PlaybackStateType_e playbackState;
     uint32_t cursor;
     uint32_t currentSong;
     uint32_t totalSong;

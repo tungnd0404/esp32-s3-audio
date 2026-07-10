@@ -21,15 +21,24 @@
 /* ===================================================
  *  GLOBAL VARIABLES
  * =================================================== */
-/* queue khởi tạo */
-QueueHandle_t xOledQueue;
-QueueHandle_t xMp3Queue;
 
 /* task handler Player Manager*/
 TaskHandle_t xPlayerManagerTaskHandle = NULL;
 
 /* state system, khai báo extern trong player_manager.h để oled/menu dùng chung */
 PlayerManager__PlayerContextType_s gsPlayerContext;
+
+/* ===================================================
+ *  LOCAL TYPE DEFINITIONS
+ * =================================================== */
+
+/* Hướng di chuyển cursor, chỉ dùng nội bộ cho PlayerManager_Update_Cursor
+   (tách riêng khỏi PlayerManager_ButtonStateType_e vì đây là 2 khái niệm khác nhau:
+   1 bên là hành động nút bấm, 1 bên là hướng di chuyển thuần tuý) */
+typedef enum {
+    CURSOR_DIR_DOWN,
+    CURSOR_DIR_UP
+} PlayerManager_CursorDirectionType_e;
 
 /* ===================================================
  *  LOCAL VARIABLES
@@ -42,10 +51,10 @@ PlayerManager__PlayerContextType_s gsPlayerContext;
  * @brief Update cursor position
  * @param cursor: vị trí hiện tại
  * @param totalItem: tổng số item
- * @param direction: hướng di chuyển (BTN_STATE_NEXT: next, BTN_STATE_PREV: prev)
+ * @param direction: hướng di chuyển (CURSOR_DIR_DOWN/CURSOR_DIR_UP)
  * @return cursor đã được update
  */
-static uint32_t PlayerManager_Update_Cursor(uint32_t cursor, uint32_t totalItem, uint8_t direction)
+static uint32_t PlayerManager_Update_Cursor(uint32_t cursor, uint32_t totalItem, PlayerManager_CursorDirectionType_e direction)
 {
     /* Check tổng số item */
     if (totalItem == 0)
@@ -53,11 +62,11 @@ static uint32_t PlayerManager_Update_Cursor(uint32_t cursor, uint32_t totalItem,
         return 0;
     }
     /* Update cursor position */
-    if (direction == BTN_STATE_NEXT) /* Next */
+    if (direction == CURSOR_DIR_DOWN)
     {
         cursor = (cursor + 1U) % totalItem;
     }
-    else /* Prev */
+    else /* CURSOR_DIR_UP */
     {
         cursor = (cursor + totalItem - 1U) % totalItem;
     }
@@ -80,6 +89,7 @@ void PlayerManager_Init(void)
     /* khởi tạo state system */
     gsPlayerContext.mainState = MAIN_STATE_MENU;
     gsPlayerContext.buttonState = BTN_STATE_IDLE;
+    gsPlayerContext.playbackState = PLAYBACK_STATE_IDLE;
 
     /* khởi tạo double buffer, ring buffer */
     /* double_buffer_init(); */
@@ -90,20 +100,17 @@ void PlayerManager_Init(void)
 
 /**
  * @brief PlayerManager_Task
- * Main controller task của hệ thống.
- * Nhiệm vụ:
- * - Nhận command từ button/event queue
- * - Quản lý state toàn hệ thống:
- *     + MENU
- *     + PLAYING
- *     + PAUSE
- * - Điều phối các task khác:
- * - Xử lý:
- *     + next/prev song
- *     + play/pause
- *     + double click
- *     + playlist/menu navigation
- * - Gửi event queue đồng bộ hệ thống
+ * Task điều khiển trung tâm của hệ thống. Chờ task notification (Button_EventType_e)
+ * gửi từ button ISR để nhận biết nút Next/Prev/Play vừa được bấm, sau đó cập nhật
+ * gsPlayerContext (mainState, buttonState, playbackState, cursor, currentSong) và
+ * báo lại cho Oled_Task (qua task notification, truyền thẳng PlayerManager_ButtonStateType_e)
+ * để vẽ lại menu / đổi bài / tiếp tục hay tạm dừng animation.
+ * Xử lý:
+ * - Di chuyển cursor lên/xuống khi đang ở MENU
+ * - Chọn bài và bắt đầu phát khi bấm Play ở MENU
+ * - Next/Prev sang bài kế/trước khi đang PLAYING
+ * - Play/Pause khi bấm 1 lần, thoát về MENU khi bấm Play 2 lần liên tiếp (double click)
+ * - Tự động quay lại giao diện PLAYING nếu ở MENU quá MENU_AUTO_RETURN_TIME mà không thao tác gì
  * @return
  */
 void PlayerManager_Task(void *arg)
@@ -114,14 +121,14 @@ void PlayerManager_Task(void *arg)
     static TickType_t lu32LastClickTime = 0;
     /* true khi vừa double click từ PLAYING sang MENU -> đang chờ auto-return sau MENU_AUTO_RETURN_TIME nếu không thao tác gì */
     static bool lbAutoReturnPending = false;
-    /* Lưu lại trạng thái play/pause trước khi double click về MENU để auto-return khôi phục đúng trạng thái */
-    static PlayerManager_ButtonStateType_e lePrevButtonState = BTN_STATE_PLAY;
+    /* Lưu lại trạng thái phát nhạc trước khi double click về MENU để auto-return khôi phục đúng trạng thái */
+    static PlayerManager_PlaybackStateType_e lePrevPlaybackState = PLAYBACK_STATE_PLAY;
 
     while (1)
     {
         /* Nếu đang chờ auto-return thì chỉ chờ tối đa MENU_AUTO_RETURN_TIME, ngược lại chờ vô thời hạn như bình thường */
         TickType_t lu32WaitTicks;
-        if (lbAutoReturnPending)
+        if (lbAutoReturnPending == true)
         {
             lu32WaitTicks = MENU_AUTO_RETURN_TIME;
         }
@@ -130,10 +137,10 @@ void PlayerManager_Task(void *arg)
             lu32WaitTicks = portMAX_DELAY;
         }
 
-        /* Chờ button ISR gửi notification tới, hoặc hết thời gian chờ (chỉ khi lbAutoReturnPending) */
+        /* Chờ button ISR gửi notification tới, hoặc hết thời gian chờ (chỉ khi lbAutoReturnPending == true) */
         if (xTaskNotifyWait(0, UINT32_MAX, &lu32button_evt, lu32WaitTicks) == pdTRUE)
         {
-            switch (lu32button_evt)
+            switch ((Button_EventType_e)lu32button_evt)
             {
                 case BTN_EVENT_NEXT:
                     /* Đang ở MENU: nút Next dùng để di chuyển con trỏ xuống dưới danh sách */
@@ -143,11 +150,14 @@ void PlayerManager_Task(void *arg)
                             printf("BUTTON DOWN\n");
                         #endif
                         /* Tính lại vị trí con trỏ mới (đi xuống, quay vòng khi hết danh sách) */
-                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, BTN_STATE_NEXT);
+                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, CURSOR_DIR_DOWN);
                         /* Lưu trạng thái button để oled_task biết chiều di chuyển */
                         gsPlayerContext.buttonState = BTN_STATE_DOWN;
-                        /* Báo oled_task vẽ lại menu tại vị trí con trỏ mới */
-                        xTaskNotify(xOledTaskHandle, OLED_EVENT_MENU_REDRAW, eSetValueWithOverwrite);
+                        /* Báo oled_task vẽ lại menu tại vị trí con trỏ mới -> truyền thẳng buttonState,
+                           không cần enum sự kiện riêng cho OLED vì nội dung y hệt nhau */
+                        xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Đã xử lý xong hành động -> đưa buttonState về IDLE (button bấm rồi nhả, không giữ trạng thái tạm này) */
+                        gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
                     /* Đang PLAYING: nút Next dùng để chuyển sang bài kế tiếp */
                     else
@@ -158,11 +168,13 @@ void PlayerManager_Task(void *arg)
                         /* Lưu trạng thái button */
                         gsPlayerContext.buttonState = BTN_STATE_NEXT;
                         /* Cursor cũng chính là chỉ số bài hát khi đang phát nhạc */
-                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, BTN_STATE_NEXT);
+                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, CURSOR_DIR_DOWN);
                         /* Cập nhật bài hát đang phát theo cursor mới */
                         gsPlayerContext.currentSong = gsPlayerContext.cursor;
                         /* Báo oled_task: đổi bài -> thoát vòng animation hiện tại, load lại double buffer cho bài mới */
-                        xTaskNotify(xOledTaskHandle, OLED_EVENT_SONG_CHANGED, eSetValueWithOverwrite);
+                        xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
+                        gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
                     break;
 
@@ -174,11 +186,13 @@ void PlayerManager_Task(void *arg)
                         printf("BUTTON UP\n");
                         #endif
                         /* Tính lại vị trí con trỏ mới (đi lên, quay vòng khi về đầu danh sách) */
-                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, BTN_STATE_PREV);
+                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, CURSOR_DIR_UP);
                         /* Lưu trạng thái button */
                         gsPlayerContext.buttonState = BTN_STATE_UP;
                         /* Báo oled_task vẽ lại menu tại vị trí con trỏ mới */
-                        xTaskNotify(xOledTaskHandle, OLED_EVENT_MENU_REDRAW, eSetValueWithOverwrite);
+                        xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
+                        gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
                     /* Đang PLAYING: nút Prev dùng để quay lại bài trước đó */
                     else
@@ -189,11 +203,13 @@ void PlayerManager_Task(void *arg)
                         /* Lưu trạng thái button */
                         gsPlayerContext.buttonState = BTN_STATE_PREV;
                         /* Cursor cũng chính là chỉ số bài hát khi đang phát nhạc */
-                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, BTN_STATE_PREV);
+                        gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, CURSOR_DIR_UP);
                         /* Cập nhật bài hát đang phát theo cursor mới */
                         gsPlayerContext.currentSong = gsPlayerContext.cursor;
                         /* Báo oled_task: đổi bài -> thoát vòng animation hiện tại, load lại double buffer cho bài mới */
-                        xTaskNotify(xOledTaskHandle, OLED_EVENT_SONG_CHANGED, eSetValueWithOverwrite);
+                        xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
+                        gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
                     break;
 
@@ -212,12 +228,19 @@ void PlayerManager_Task(void *arg)
                         gsPlayerContext.mainState = MAIN_STATE_PLAYING;
                         /* Đánh dấu vừa chọn bài mới để bắt đầu phát từ đầu */
                         gsPlayerContext.buttonState = BTN_STATE_PLAY_NEW;
+                        /* Bài mới chọn -> tự động phát ngay (autoplay) */
+                        gsPlayerContext.playbackState = PLAYBACK_STATE_PLAY;
                         /* Bài đang phát chính là bài tại vị trí cursor */
                         gsPlayerContext.currentSong = gsPlayerContext.cursor;
+                        /* Bắt đầu phiên phát mới -> reset mốc double click, tránh mang mốc thời gian
+                           của phiên phát trước đó sang gây double-click giả ở lần bấm PLAY đầu tiên */
+                        lu32LastClickTime = 0;
                         /* Chọn bài trực tiếp -> không cần chờ auto-return nữa */
                         lbAutoReturnPending = false;
                         /* Báo oled_task: có bài mới -> load double buffer và bắt đầu vòng animation */
-                        xTaskNotify(xOledTaskHandle, OLED_EVENT_SONG_CHANGED, eSetValueWithOverwrite);
+                        xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
+                        gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
                     /* Đang PLAYING: nút Play dùng để play/pause (bấm 1 lần) hoặc thoát về MENU (bấm 2 lần liên tiếp) */
                     else if (gsPlayerContext.mainState == MAIN_STATE_PLAYING)
@@ -228,18 +251,21 @@ void PlayerManager_Task(void *arg)
                             #if defined DEVELOPER_CONFIGURATION
                             printf("DOUBLE CLICK -> MENU\n");
                             #endif
-                            /* Lưu lại trạng thái play/pause hiện tại để lát auto-return khôi phục đúng */
-                            lePrevButtonState = gsPlayerContext.buttonState;
+                            /* Lưu lại trạng thái phát nhạc hiện tại để lát auto-return khôi phục đúng
+                               (buttonState không dùng được cho việc này vì nó tự về IDLE ngay sau khi xử lý) */
+                            lePrevPlaybackState = gsPlayerContext.playbackState;
                             /* Double click -> thoát phát nhạc, quay lại MENU (nhạc vẫn phát nền, chỉ đổi giao diện) */
                             gsPlayerContext.mainState = MAIN_STATE_MENU;
-                            /* Đưa trạng thái button về IDLE để hiển thị menu bình thường */
-                            gsPlayerContext.buttonState = BTN_STATE_IDLE;
+                            /* Ghi nhận hành động: double click thoát về MENU (tường minh hơn BTN_STATE_IDLE) */
+                            gsPlayerContext.buttonState = BTN_STATE_BACK_MENU;
                             /* Reset mốc thời gian, tránh double click bị tính lặp lại nhiều lần */
                             lu32LastClickTime = 0;
                             /* Bật cờ chờ auto-return: nếu ở MENU quá MENU_AUTO_RETURN_TIME mà không thao tác gì sẽ tự quay lại PLAYING */
                             lbAutoReturnPending = true;
                             /* Báo oled_task: thoát PLAYING -> vẽ lại màn hình MENU */
-                            xTaskNotify(xOledTaskHandle, OLED_EVENT_MENU_REDRAW, eSetValueWithOverwrite);
+                            xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                            /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
+                            gsPlayerContext.buttonState = BTN_STATE_IDLE;
                         }
                         /* Single click: play/pause bài đang phát -> không đổi bài, chỉ báo oled_task tiếp tục/tạm dừng animation */
                         else
@@ -247,26 +273,32 @@ void PlayerManager_Task(void *arg)
                             #if defined DEVELOPER_CONFIGURATION
                             printf("SINGLE CLICK\n");
                             #endif
-                            if (gsPlayerContext.buttonState == BTN_STATE_PLAY)
+                            if (gsPlayerContext.playbackState == PLAYBACK_STATE_PLAY)
                             {
                                 #if defined DEVELOPER_CONFIGURATION
                                 printf("PAUSE\n");
                                 #endif
-                                /* Đang phát -> chuyển sang tạm dừng */
+                                /* Ghi nhận hành động vừa bấm là PAUSE (chỉ mang tính thời điểm) */
                                 gsPlayerContext.buttonState = BTN_STATE_PAUSE;
+                                /* Đang phát -> chuyển sang tạm dừng, giá trị này tồn tại liên tục cho tới lần PLAY kế tiếp */
+                                gsPlayerContext.playbackState = PLAYBACK_STATE_PAUSE;
                                 /* Báo oled_task dừng animation lại theo, không load lại bài */
-                                xTaskNotify(xOledTaskHandle, OLED_EVENT_PLAY_PAUSE, eSetValueWithOverwrite);
+                                xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                             }
                             else
                             {
                                 #if defined DEVELOPER_CONFIGURATION
                                 printf("PLAY\n");
                                 #endif
-                                /* Đang tạm dừng/mới chọn bài -> chuyển sang phát */
+                                /* Ghi nhận hành động vừa bấm là PLAY (chỉ mang tính thời điểm) */
                                 gsPlayerContext.buttonState = BTN_STATE_PLAY;
+                                /* Đang tạm dừng -> chuyển sang phát */
+                                gsPlayerContext.playbackState = PLAYBACK_STATE_PLAY;
                                 /* Báo oled_task tiếp tục animation, không load lại bài */
-                                xTaskNotify(xOledTaskHandle, OLED_EVENT_PLAY_PAUSE, eSetValueWithOverwrite);
+                                xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                             }
+                            /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
+                            gsPlayerContext.buttonState = BTN_STATE_IDLE;
                             /* Lưu lại mốc thời gian click này để lần bấm PLAY kế tiếp xét double click */
                             lu32LastClickTime = lnow;
                         }
@@ -279,19 +311,24 @@ void PlayerManager_Task(void *arg)
             }
         }
         /* Không nhận được notification nào trong lu32WaitTicks -> chỉ xảy ra khi đang chờ auto-return */
-        else if (lbAutoReturnPending)
+        else if (lbAutoReturnPending == true)
         {
             #if defined DEVELOPER_CONFIGURATION
             printf("MENU IDLE TIMEOUT -> BACK TO PLAYING\n");
             #endif
             /* Hết 3s không thao tác gì ở MENU -> tự quay lại giao diện PLAYING của bài đang phát */
             gsPlayerContext.mainState = MAIN_STATE_PLAYING;
-            /* Khôi phục lại đúng trạng thái play/pause trước khi double click vào MENU */
-            gsPlayerContext.buttonState = lePrevButtonState;
+            /* Khôi phục lại đúng trạng thái phát nhạc trước khi double click vào MENU */
+            gsPlayerContext.playbackState = lePrevPlaybackState;
             /* Tắt cờ chờ auto-return, quay lại chờ notify vô thời hạn như bình thường */
             lbAutoReturnPending = false;
-            /* Báo oled_task quay lại màn hình playing, không cần load lại bài (bài không đổi) */
-            xTaskNotify(xOledTaskHandle, OLED_EVENT_PLAY_PAUSE, eSetValueWithOverwrite);
+            /* Báo oled_task quay lại màn hình playing, không cần load lại bài (bài không đổi).
+               Không dùng gsPlayerContext.buttonState ở đây vì nó đang là BTN_STATE_IDLE (đã bị
+               reset từ lần xử lý trước) -> tự suy ra BTN_STATE_PLAY/PAUSE tương ứng playbackState
+               vừa khôi phục để Oled_Task rơi đúng vào nhóm "play/pause" thay vì nhóm "vẽ menu" */
+            xTaskNotify(xOledTaskHandle,
+                        (lePrevPlaybackState == PLAYBACK_STATE_PLAY) ? BTN_STATE_PLAY : BTN_STATE_PAUSE,
+                        eSetValueWithOverwrite);
         }
     }
 }
