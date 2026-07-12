@@ -37,10 +37,10 @@ void Mp3_Init(void);
 
 /**
  * @brief Mp3_Task
- * Task owner duy nhất của thiết bị VS1053. Nhận Srm_Message_s từ xMp3CommandQueue, dựa
- * vào cmdId (Srm_CommandType_e) để gọi API vs1053_* tương ứng, trả kết quả về bằng
- * Srm_Reply().
- * Thân hàm hiện để trống, sẽ triển khai sau (stream mp3 + xử lý command).
+ * Task owner duy nhất của thiết bị VS1053 - stream file mp3 của bài đang phát ra loa, và
+ * là nơi duy nhất được phép gọi API vs1053_* (kiến trúc Owner Task, xem srm.h).
+ * Cùng khuôn thuật toán với Oled_Task/Sdcard_Task để các task trong hệ thống đọc thống
+ * nhất (xem mp3.c để biết chi tiết từng hàm nội bộ).
  * @param pvParameters
  * @return
  */

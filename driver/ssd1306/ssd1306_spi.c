@@ -20,9 +20,9 @@
 
 #define SPI_COMMAND_MODE 0
 #define SPI_DATA_MODE 1
-#define SPI_DEFAULT_FREQUENCY 1000000; // 1MHz
+#define SPI_DEFAULT_FREQUENCY 1000000 // 1MHz
 
-int clock_speed_hz = SPI_DEFAULT_FREQUENCY;
+static int clock_speed_hz = SPI_DEFAULT_FREQUENCY;
 
 void spi_clock_speed(int speed) {
 	ESP_LOGI(TAG, "SPI clock speed=%d MHz", speed/1000000);

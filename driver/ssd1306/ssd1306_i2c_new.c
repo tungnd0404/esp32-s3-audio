@@ -21,6 +21,10 @@
 #define I2C_MASTER_FREQ_HZ 400000 // I2C clock of SSD1306 can run at 400 kHz max.
 #define I2C_TICKS_TO_WAIT 100	  // Maximum ticks to wait before issuing a timeout.
 
+// Chiều rộng tối đa 1 lần ghi page (bằng chiều rộng lớn nhất màn hình SSD1306 hỗ trợ,
+// xem CONFIG_WIDTH trong config.h) - dùng làm kích thước buffer tĩnh trong i2c_display_image()
+#define I2C_DISPLAY_MAX_WIDTH 128
+
 void i2c_master_init(SSD1306_t * dev, int16_t sda, int16_t scl, int16_t reset)
 {
 	ESP_LOGI(TAG, "New i2c driver is used");
@@ -159,6 +163,10 @@ void i2c_init(SSD1306_t * dev, int width, int height) {
 void i2c_display_image(SSD1306_t * dev, int page, int seg, const uint8_t * images, int width) {
 	if (page >= dev->_pages) return;
 	if (seg >= dev->_width) return;
+	if (width > I2C_DISPLAY_MAX_WIDTH) {
+		ESP_LOGE(TAG, "width %d exceeds max %d", width, I2C_DISPLAY_MAX_WIDTH);
+		return;
+	}
 
 	int _seg = seg + CONFIG_OFFSETX;
 	uint8_t columLow = _seg & 0x0F;
@@ -169,12 +177,10 @@ void i2c_display_image(SSD1306_t * dev, int page, int seg, const uint8_t * image
 		_page = (dev->_pages - page) - 1;
 	}
 
-	uint8_t *out_buf;
-	out_buf = malloc(width < 4 ? 4 : width + 1);
-	if (out_buf == NULL) {
-		ESP_LOGE(TAG, "malloc fail");
-		return;
-	}
+	// Buffer tĩnh cố định thay cho malloc/free mỗi lần gọi - hàm này được Oled_DrawFrame()
+	// gọi tới 8 lần/frame trong lúc phát animation (tối đa hàng trăm lần/giây), malloc/free
+	// lặp lại liên tục là nguồn gây phân mảnh heap không cần thiết trên hệ heap dùng chung
+	uint8_t out_buf[I2C_DISPLAY_MAX_WIDTH + 1];
 	int out_index = 0;
 	out_buf[out_index++] = OLED_CONTROL_BYTE_CMD_STREAM;
 	// Set Lower Column Start Address for Page Addressing Mode
@@ -195,7 +201,6 @@ void i2c_display_image(SSD1306_t * dev, int page, int seg, const uint8_t * image
 	res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, width + 1, I2C_TICKS_TO_WAIT);
 	if (res != ESP_OK)
 		ESP_LOGE(TAG, "Could not write to device [0x%02x at %d]: %d (%s)", dev->_address, dev->_i2c_num, res, esp_err_to_name(res));
-	free(out_buf);
 }
 
 void i2c_contrast(SSD1306_t * dev, int contrast) {

@@ -5,6 +5,7 @@
 #include "srm.h"
 #include "freertos/task.h"
 #include "freertos/semphr.h"
+#include "esp_log.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -43,6 +44,9 @@ static uint32_t gu32RegisteredCount = 0;
    registry -> cùng ghi đè lên cùng 1 chỗ trống). Tạo 1 lần trong Srm_Init(), KHÔNG tạo
    lazy trong Srm_GetOwnResponseQueue() vì việc tạo mutex kiểu lazy cũng bị race y hệt. */
 static SemaphoreHandle_t gxMutexTaskResponseQueueList = NULL;
+
+/* Tag dùng cho ESP_LOGx trong module này */
+static const char *TAG = "SRM";
 
 /* ===================================================
  *  LOCAL FUNCTION
@@ -101,6 +105,19 @@ static QueueHandle_t Srm_GetOwnResponseQueue(void)
             gu32RegisteredCount++;
             lResult = lNewQueue;
         }
+        else
+        {
+            /* Hết heap lúc tạo response queue mới - hiếm nhưng cần log rõ lý do thất bại,
+               tránh Srm_SendCommand() trả false không rõ nguyên nhân (registry đầy vs timeout thật) */
+            ESP_LOGE(TAG, "Failed to create response queue for task 0x%p (out of heap)", (void *)lCallerTask);
+        }
+    }
+    else if (lResult == NULL)
+    {
+        /* Task chưa từng đăng ký nhưng registry đã đầy (SRM_MAX_REGISTERED_TASKS) -> không
+           còn chỗ tạo mới. Log rõ để phân biệt với trường hợp timeout thật khi debug */
+        ESP_LOGE(TAG, "Registry full (SRM_MAX_REGISTERED_TASKS=%u), cannot register task 0x%p",
+                 (unsigned)SRM_MAX_REGISTERED_TASKS, (void *)lCallerTask);
     }
 
     xSemaphoreGive(gxMutexTaskResponseQueueList);

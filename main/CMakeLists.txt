@@ -13,6 +13,7 @@ idf_component_register(
         "../task/player_manager.c"
         "../task/mp3.c"
         "../driver/srm/srm.c"
+        "../driver/vs1053/vs1053.c"
 
     INCLUDE_DIRS
         "."
@@ -22,4 +23,5 @@ idf_component_register(
         "../task"
         "../driver/button"
         "../driver/srm"
+        "../driver/vs1053"
 )

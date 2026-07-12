@@ -7,6 +7,8 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
 #include "oled.h"
+#include "sdcard.h"
+#include "mp3.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -90,21 +92,24 @@ void PlayerManager_Init(void)
     gsPlayerContext.mainState = MAIN_STATE_MENU;
     gsPlayerContext.buttonState = BTN_STATE_IDLE;
     gsPlayerContext.playbackState = PLAYBACK_STATE_IDLE;
-
-    /* khởi tạo double buffer, ring buffer */
-    /* double_buffer_init(); */
-
-    /* khởi tạo event, queue */
-    
+    /* Tổng số bài hát lấy từ kết quả Sdcard_ScanAndCreateDb() đã quét lúc boot (audio.c
+       gọi trước PlayerManager_Init() nên gu16SongCount đã có giá trị đúng ở đây) */
+    gsPlayerContext.totalSong = gu16SongCount;
 }
 
 /**
  * @brief PlayerManager_Task
  * Task điều khiển trung tâm của hệ thống. Chờ task notification (Button_EventType_e)
  * gửi từ button ISR để nhận biết nút Next/Prev/Play vừa được bấm, sau đó cập nhật
- * gsPlayerContext (mainState, buttonState, playbackState, cursor, currentSong) và
- * báo lại cho Oled_Task (qua task notification, truyền thẳng PlayerManager_ButtonStateType_e)
- * để vẽ lại menu / đổi bài / tiếp tục hay tạm dừng animation.
+ * gsPlayerContext (mainState, buttonState, playbackState, cursor, currentSong) và báo lại
+ * cho các task liên quan (qua task notification, truyền thẳng PlayerManager_ButtonStateType_e):
+ * - Oled_Task: luôn được báo cho MỌI thay đổi (vẽ lại menu / đổi bài / tiếp tục hay tạm
+ *   dừng animation), kể cả những thay đổi không đổi bài (di chuyển cursor, peek MENU).
+ * - Sdcard_Task: chỉ báo khi THỰC SỰ đổi bài (Next/Prev lúc PLAYING, chọn bài mới từ MENU)
+ *   để nạp lại frame animation cho bài mới vào double buffer.
+ * - Mp3_Task: báo khi đổi bài (như Sdcard_Task) VÀ khi Play/Pause đổi trạng thái (để dừng
+ *   hoặc tiếp tục stream audio) - không cần báo khi chỉ di chuyển cursor hay peek MENU vì
+ *   nhạc vẫn phát nền không đổi gì trong 2 trường hợp đó.
  * Xử lý:
  * - Di chuyển cursor lên/xuống khi đang ở MENU
  * - Chọn bài và bắt đầu phát khi bấm Play ở MENU
@@ -173,6 +178,10 @@ void PlayerManager_Task(void *arg)
                         gsPlayerContext.currentSong = gsPlayerContext.cursor;
                         /* Báo oled_task: đổi bài -> thoát vòng animation hiện tại, load lại double buffer cho bài mới */
                         xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Báo sd_task: đổi bài -> nạp lại frame animation cho bài mới vào double buffer */
+                        xTaskNotify(xSdTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Báo mp3_task: đổi bài -> dừng stream bài cũ, phát bài mới */
+                        xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                         gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
@@ -208,6 +217,10 @@ void PlayerManager_Task(void *arg)
                         gsPlayerContext.currentSong = gsPlayerContext.cursor;
                         /* Báo oled_task: đổi bài -> thoát vòng animation hiện tại, load lại double buffer cho bài mới */
                         xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Báo sd_task: đổi bài -> nạp lại frame animation cho bài mới vào double buffer */
+                        xTaskNotify(xSdTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Báo mp3_task: đổi bài -> dừng stream bài cũ, phát bài mới */
+                        xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                         gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
@@ -239,6 +252,10 @@ void PlayerManager_Task(void *arg)
                         lbAutoReturnPending = false;
                         /* Báo oled_task: có bài mới -> load double buffer và bắt đầu vòng animation */
                         xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Báo sd_task: có bài mới -> nạp frame animation của bài này vào double buffer */
+                        xTaskNotify(xSdTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        /* Báo mp3_task: có bài mới -> mở file mp3 và bắt đầu stream */
+                        xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                         gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
@@ -284,6 +301,8 @@ void PlayerManager_Task(void *arg)
                                 gsPlayerContext.playbackState = PLAYBACK_STATE_PAUSE;
                                 /* Báo oled_task dừng animation lại theo, không load lại bài */
                                 xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                                /* Báo mp3_task tạm dừng stream (không đổi bài, không cần báo sd_task) */
+                                xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                             }
                             else
                             {
@@ -296,6 +315,8 @@ void PlayerManager_Task(void *arg)
                                 gsPlayerContext.playbackState = PLAYBACK_STATE_PLAY;
                                 /* Báo oled_task tiếp tục animation, không load lại bài */
                                 xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                                /* Báo mp3_task tiếp tục stream (không đổi bài, không cần báo sd_task) */
+                                xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                             }
                             /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                             gsPlayerContext.buttonState = BTN_STATE_IDLE;

@@ -141,13 +141,13 @@ static bool Oled_PlayAnimation(SSD1306_t *dev, uint32_t *pu32NotifyValue)
            (do OLED_ANIMATION_DELAY_MS poll nhanh hơn tốc độ frame thật) */
         if (lu32FrameIndex != lu32LastDrawnFrameIndex)
         {
-            double_buffer_get_frame(lu32FrameIndex, gau8Frame);
+            DoubleBuffer_GetFrame(lu32FrameIndex, gau8Frame);
             Oled_DrawFrame(dev, gau8Frame);
             lu32LastDrawnFrameIndex = lu32FrameIndex;
         }
 
         /* Vẫn phải delay dù frame có đổi hay không, để nhường CPU cho task khác
-           (sdcard_task, player_manager_task...) thay vì busy-poll liên tục */
+           (Sdcard_Task, PlayerManager_Task...) thay vì busy-poll liên tục */
         vTaskDelay(pdMS_TO_TICKS(OLED_ANIMATION_DELAY_MS));
     }
 

@@ -1,300 +1,531 @@
+/* ===================================================
+ *  INCLUDE FILES
+ * =================================================== */
+
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <dirent.h>
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
 #include "driver/sdmmc_host.h"
 #include "sdcard.h"
-#include "menu.h"
+#include "config.h"
 #include "player_manager.h"
 #include "double_buffer.h"
-#include <strings.h> 
+#include "srm.h"
 
-/* ==================== Định nghĩa biến toàn cục ==================== */
+/* ===================================================
+ *  MACROS / DEFINES
+ * =================================================== */
+
+/* Đường dẫn file database chứa danh sách bài hát, tạo bởi Sdcard_ScanAndCreateDb() */
+#define SDCARD_DB_PATH              "/sdcard/songs.db"
+
+/* Thời gian tối đa chờ lệnh mới trên xSdCommandQueue (ms) mỗi vòng lặp trong Sdcard_Task.
+   Chờ có giới hạn (không dùng portMAX_DELAY) để mỗi vòng lặp còn tranh thủ check
+   non-blocking xem có bài mới cần chuyển sang không (xem Sdcard_Task) */
+#define SDCARD_LOAD_WAIT_MS         50U
+
+/* Số request tối đa có thể chờ xử lý trong xSdCommandQueue cùng lúc */
+#define SDCARD_COMMAND_QUEUE_LENGTH 4U
+
+/* ===================================================
+ *  GLOBAL VARIABLES
+ * =================================================== */
+
+/* task handler Sdcard_Task */
+TaskHandle_t xSdTaskHandle = NULL;
+
+/* Danh sách tên bài hát trong RAM, dùng cho menu hiển thị */
+Sdcard_SongInfoType_s gaSongList[SDCARD_MAX_SONGS];
+
+/* Tổng số bài hát tìm thấy trên thẻ nhớ */
+uint16_t gu16SongCount = 0;
+
+/* Hàng đợi lệnh dùng chung tới Sdcard_Task, tạo trong Sdcard_Init() vì Sdcard_Task là owner
+   dữ liệu double buffer animation (xem driver/buffer/double_buffer.c) */
+QueueHandle_t xSdCommandQueue = NULL;
+
+/* ===================================================
+ *  LOCAL TYPE DEFINITIONS
+ * =================================================== */
+
+/* Trạng thái nạp dữ liệu riêng của Sdcard_Task, suy ra từ PlayerManager_ButtonStateType_e
+   nhận được qua notification. Cùng kiểu thiết kế với Oled_DisplayStateType_e (oled.c):
+   chỉ dùng nội bộ file này để switch cho tường minh, không phải kiểu dữ liệu đi qua kênh
+   notification (kênh truyền vẫn dùng thẳng PlayerManager_ButtonStateType_e). */
+typedef enum {
+    SDCARD_LOAD_SONG_CHANGED,  /* Đổi bài -> mở lại double buffer, nạp frame cho bài mới */
+    SDCARD_LOAD_NONE           /* Sự kiện không liên quan (di chuyển cursor, play/pause...) -> bỏ qua */
+} Sdcard_LoadStateType_e;
+
+/* ===================================================
+ *  LOCAL VARIABLES
+ * =================================================== */
+
 static const char *TAG = "SDCARD";
 
-/* task handler sd_task */
-TaskHandle_t sd_taskHandle = NULL;
-
-/* song info */
-song_info_t song_list[MAX_SONGS];
-
-/* song count */
-uint16_t song_count = 0;
-
-/* ==================== Hàm nội bộ ==================== */
+/* ===================================================
+ *  LOCAL FUNCTION
+ * =================================================== */
 
 /**
- * @brief kiểm tra file có đúng phần mở rộng không
- * @param name  tên file bao gồm extension (eg: song.mp3)
- * @param ext   phần mở rộng (eg: mp3, bin)
- * @return 1 nếu đúng 0 nếu sai
+ * @brief Sdcard_GetLoadState
+ * Suy ra Sdcard_LoadStateType_e tương ứng từ buttonState nhận được qua notification.
+ * Sdcard_Task chỉ thực sự quan tâm sự kiện ĐỔI BÀI (Next/Prev lúc đang phát, hoặc chọn
+ * bài mới từ MENU) - di chuyển cursor trong MENU hay play/pause không làm thay đổi bài
+ * đang cần nạp dữ liệu nên được gộp chung vào SDCARD_LOAD_NONE.
+ * @param buttonState: giá trị PlayerManager_ButtonStateType_e nhận từ PlayerManager_Task
+ * @return Sdcard_LoadStateType_e tương ứng
  */
-static int has_ext(const char *name, const char *ext)
+static Sdcard_LoadStateType_e Sdcard_GetLoadState(PlayerManager_ButtonStateType_e buttonState)
 {
-    const char *dot = strrchr(name, '.');
-    if (!dot) return 0;
+    switch (buttonState)
+    {
+        case BTN_STATE_NEXT:
+        case BTN_STATE_PREV:
+        case BTN_STATE_PLAY_NEW:
+            return SDCARD_LOAD_SONG_CHANGED;
 
-    return strcasecmp(dot, ext) == 0;
+        case BTN_STATE_UP:
+        case BTN_STATE_DOWN:
+        case BTN_STATE_BACK_MENU:
+        case BTN_STATE_PLAY:
+        case BTN_STATE_PAUSE:
+        case BTN_STATE_IDLE:
+        default:
+            return SDCARD_LOAD_NONE;
+    }
 }
 
 /**
- * @brief Remove phần mở rộng
- * @param dest  Buffer đích để lưu kết quả sau khi xóa extension
- * @param src   tên file bao gồm extension (eg: song.mp3)
+ * @brief Sdcard_HandleCommand
+ * Xử lý 1 request nhận được từ xSdCommandQueue (xem srm.h - kiến trúc Owner Task): dựa vào
+ * cmdId gọi đúng hàm DoubleBuffer_* tương ứng (Sdcard_Task là owner duy nhất được phép ghi
+ * vào double buffer animation, xem driver/buffer/double_buffer.c).
+ * @param pRequest: request nhận được từ xSdCommandQueue
+ * @return
  */
-static void remove_ext(char *dest, const char *src)
+static void Sdcard_HandleCommand(const Srm_Message_s *pRequest)
 {
-    strcpy(dest, src);
-    char *dot = strrchr(dest, '.');
-    if (dot) *dot = '\0';
+    switch ((Srm_CommandType_e)pRequest->cmdId)
+    {
+        case SDCARD_CMD_PRELOAD_BUFFER:
+            /* Trả lời NGAY (ack "đã nhận lệnh", không phải "đã nạp xong") rồi mới thực sự
+               nạp - để bên gửi (DoubleBuffer_GetFrame(), đang giữ gxMutexDoubleBuffer lúc
+               gọi Srm_SendCommand cho lệnh này) không phải chờ tới lúc nạp xong thật (có
+               thể mất vài-vài chục ms đọc thẻ SD) mới được trả lời. Nhờ trả lời trước khi
+               gọi DoubleBuffer_Preload(), hàm đó có lấy gxMutexDoubleBuffer trễ hơn cũng
+               không sao - bên gửi lúc này đã nhận được ack và không còn giữ mutex chờ nữa,
+               không có rủi ro deadlock */
+            Srm_Reply(pRequest, 1U);
+            DoubleBuffer_Preload();
+            break;
+
+        case SDCARD_CMD_LOAD_MISSING_FRAME:
+        {
+            /* Lệnh gửi qua Srm_SendCommand() - bên gửi đang chờ, luôn phải trả lời để họ
+               không phải đợi hết timeout mới biết kết quả */
+            bool lbSuccess = DoubleBuffer_LoadFrame(pRequest->payload);
+            Srm_Reply(pRequest, (uint32_t)lbSuccess);
+            break;
+        }
+
+        default:
+            /* cmdId lạ (chưa định nghĩa xử lý) -> vẫn trả lời 0 để bên gửi (nếu có chờ)
+               không phải đợi hết timeout mới coi là lỗi */
+            Srm_Reply(pRequest, 0U);
+            break;
+    }
 }
 
-/* ==================== API công khai ==================== */
 /**
- * @brief Mount SD 1-bit mode
- * mount sd card sử dụng SD 1-Bit
- * @return ESP_OK nếu đã mount thành công
+ * @brief Sdcard_LoadCurrentSong
+ * Mở double buffer cho bài hát ĐANG THỰC SỰ PHÁT (gsPlayerContext.currentSong) rồi liên
+ * tục xử lý các lệnh nạp dữ liệu frame animation gửi tới qua xSdCommandQueue
+ * (SDCARD_CMD_PRELOAD_BUFFER/SDCARD_CMD_LOAD_MISSING_FRAME, xem Sdcard_HandleCommand), cho
+ * tới khi có bài mới cần chuyển sang. Cùng khuôn mẫu với Oled_PlayAnimation() (oled.c):
+ * mỗi vòng lặp đều check non-blocking notification để không trễ khi cần đổi bài, kết quả
+ * trả về qua tham số ra để vòng lặp ngoài không bị mất giá trị notification vừa nhận.
+ * @param pu32NotifyValue: [out] giá trị notification mới nhận được, chỉ có ý nghĩa khi
+ *        hàm trả về true
+ * @return true nếu thoát do có notification mới cần xử lý tiếp, false nếu thoát do lỗi
+ *         đọc thông tin bài hát (Sdcard_GetSongByIndex thất bại, vd DB lỗi)
  */
-esp_err_t sdcard_mount(void)
+static bool Sdcard_LoadCurrentSong(uint32_t *pu32NotifyValue)
 {
-    esp_err_t ret;
+    Sdcard_SongDbType_s lSong;
+
+    /* Không dùng gsPlayerContext.cursor - vì cursor có thể đã di chuyển sang bài khác nếu
+       người dùng đang duyệt MENU trong lúc nhạc vẫn phát nền (xem tính năng auto-return) */
+    if (Sdcard_GetSongByIndex((uint16_t)gsPlayerContext.currentSong, &lSong) == false)
+    {
+        return false;
+    }
+
+    /* Đóng buffer của bài cũ (nếu có), mở lại cho bài mới */
+    DoubleBuffer_Close();
+    DoubleBuffer_Open(lSong.framePath);
+
+    while (1)
+    {
+        Srm_Message_s lRequest;
+
+        /* Chờ có giới hạn thời gian (không portMAX_DELAY) để còn quay lại check
+           non-blocking phía dưới xem có tín hiệu đổi bài mới không. Có lệnh tới thì xử lý
+           ngay, không cần chờ hết SDCARD_LOAD_WAIT_MS */
+        if (xQueueReceive(xSdCommandQueue, &lRequest, pdMS_TO_TICKS(SDCARD_LOAD_WAIT_MS)) == pdTRUE)
+        {
+            Sdcard_HandleCommand(&lRequest);
+        }
+
+        /* Check non-blocking (timeout = 0): có notification mới thì thoát ngay, không chờ */
+        if (xTaskNotifyWait(0, UINT32_MAX, pu32NotifyValue, 0) == pdTRUE)
+        {
+            return true;
+        }
+    }
+}
+
+/**
+ * @brief Sdcard_HasExtension
+ * Kiểm tra tên file có đúng phần mở rộng cần tìm không
+ * @param name: tên file bao gồm extension (vd "song.mp3")
+ * @param ext: phần mở rộng cần so khớp, bao gồm dấu chấm (vd ".mp3")
+ * @return true nếu đúng, false nếu sai hoặc tên file không có phần mở rộng
+ */
+static bool Sdcard_HasExtension(const char *name, const char *ext)
+{
+    const char *lDot = strrchr(name, '.');
+    if (lDot == NULL)
+    {
+        return false;
+    }
+
+    return (strcasecmp(lDot, ext) == 0);
+}
+
+/**
+ * @brief Sdcard_RemoveExtension
+ * Copy tên file sang dest, bỏ phần mở rộng (phần từ dấu chấm cuối cùng trở đi)
+ * @param pDest: buffer đích để lưu kết quả, kích thước destSize byte
+ * @param destSize: kích thước pDest, tránh tràn bộ nhớ khi tên file dài bất thường
+ * @param pSrc: tên file nguồn bao gồm extension (vd "song.mp3")
+ * @return
+ */
+static void Sdcard_RemoveExtension(char *pDest, size_t destSize, const char *pSrc)
+{
+    char *lDot;
+
+    /* Copy có giới hạn kích thước, luôn đảm bảo kết thúc bằng '\0' */
+    snprintf(pDest, destSize, "%s", pSrc);
+
+    lDot = strrchr(pDest, '.');
+    if (lDot != NULL)
+    {
+        *lDot = '\0';
+    }
+}
+
+/* ===================================================
+ *  GLOBAL FUNCTION
+ * =================================================== */
+
+/**
+ * @brief Sdcard_Init
+ * Khởi tạo module Sdcard: tạo xSdCommandQueue để các module khác (double_buffer.c) gửi
+ * lệnh vào. Gọi trước khi tạo Sdcard_Task.
+ * @param
+ * @return
+ */
+void Sdcard_Init(void)
+{
+    xSdCommandQueue = xQueueCreate(SDCARD_COMMAND_QUEUE_LENGTH, sizeof(Srm_Message_s));
+}
+
+/**
+ * @brief Sdcard_Mount
+ * Mount thẻ nhớ SD ở chế độ 1-bit (SDMMC)
+ * @param
+ * @return ESP_OK nếu mount thành công
+ */
+esp_err_t Sdcard_Mount(void)
+{
+    esp_err_t lRet;
+    sdmmc_card_t *pCard;
 
     /* macro tạo config mặc định */
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    sdmmc_host_t lHost = SDMMC_HOST_DEFAULT();
+    sdmmc_slot_config_t lSlotConfig = SDMMC_SLOT_CONFIG_DEFAULT();
 
-    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    /* Dùng SD 1-bit -> không dùng các chân data D1/D2/D3 */
+    lSlotConfig.width = 1;
+    lSlotConfig.d1 = -1;
+    lSlotConfig.d2 = -1;
+    lSlotConfig.d3 = -1;
 
-    /* sử dụng sd 1 bit*/
-    slot_config.width = 1;
-    slot_config.d1 = -1;
-    slot_config.d2 = -1;
-    slot_config.d3 = -1;
+    /* Cấu hình chân GPIO thật của board */
+    lSlotConfig.clk = SD_CLK;
+    lSlotConfig.cmd = SD_CMD;
+    lSlotConfig.d0 = SD_D0;
 
-    /* cấu hình chân GPIO */
-    slot_config.clk = SD_CLK;
-    slot_config.cmd = SD_CMD;
-    slot_config.d0  = SD_D0;
-
-    /* config mount sd card
-     * format_if_mount_failed = false - báo lỗi 
-     * max_files tối đa đọc bao nhiêu file
-     * allocation_unit_size Kích thước cluster của FAT filesystem (16 * 1024 = 16KB) */
-    esp_vfs_fat_sdmmc_mount_config_t mount_config =
+    /* format_if_mount_failed = false -> báo lỗi thay vì tự format thẻ khi mount thất bại
+       max_files: số file tối đa mở đồng thời
+       allocation_unit_size: kích thước cluster FAT filesystem (16KB) */
+    esp_vfs_fat_sdmmc_mount_config_t lMountConfig =
     {
         .format_if_mount_failed = false,
         .max_files = 5,
-        .allocation_unit_size = 16 * 1024
+        .allocation_unit_size = 16 * 1024,
     };
 
-    sdmmc_card_t *card;
-
-    /* mount sd card */
-    ret = esp_vfs_fat_sdmmc_mount("/sdcard",
-                                  &host,
-                                  &slot_config,
-                                  &mount_config,
-                                  &card);
-
-    if (ret != ESP_OK)
+    lRet = esp_vfs_fat_sdmmc_mount("/sdcard", &lHost, &lSlotConfig, &lMountConfig, &pCard);
+    if (lRet != ESP_OK)
     {
-        ESP_LOGE(TAG,"SD mount failed");
-        return ret;
+        ESP_LOGE(TAG, "SD mount failed");
+        return lRet;
     }
 
-    ESP_LOGI(TAG,"SD card mounted");
+    ESP_LOGI(TAG, "SD card mounted");
 
-    /* console sd info */
-    sdmmc_card_print_info(stdout, card);
+    /* In thông tin thẻ nhớ ra console */
+    sdmmc_card_print_info(stdout, pCard);
 
     return ESP_OK;
 }
 
 /**
- * @brief Quét sd card và tạo file data base (tên file, đường dẫn, tổng số file,...)
- * @param base_path  root path (/sdcard)
- * @return 
+ * @brief Sdcard_ScanAndCreateDb
+ * Quét toàn bộ thư mục gốc thẻ nhớ, tìm các file .mp3 có file .bin (frame animation)
+ * đi kèm, ghi thành file database "/sdcard/songs.db" và nạp tên bài hát vào gaSongList
+ * @param basePath: thư mục gốc cần quét (vd "/sdcard")
+ * @return
  */
-void scan_sdcard_and_create_db(const char *base_path)
+void Sdcard_ScanAndCreateDb(const char *basePath)
 {
-    DIR *dir = opendir(base_path);
-    if (!dir) {
+    DIR *pDir;
+    FILE *pDb;
+    struct dirent *pEntry;
+
+    pDir = opendir(basePath);
+    if (pDir == NULL)
+    {
         printf("Cannot open dir\n");
         return;
     }
 
-    FILE *db = fopen("/sdcard/songs.db", "wb");
-    if (!db) {
+    pDb = fopen(SDCARD_DB_PATH, "wb");
+    if (pDb == NULL)
+    {
         printf("Cannot open db file\n");
-        closedir(dir);
+        closedir(pDir);
         return;
     }
 
-    struct dirent *entry;
-
-    while ((entry = readdir(dir)) != NULL && song_count < MAX_SONGS)
+    /* Duyệt từng entry trong thư mục cho tới khi hết file hoặc đầy gaSongList */
+    while (((pEntry = readdir(pDir)) != NULL) && (gu16SongCount < SDCARD_MAX_SONGS))
     {
-        printf("Found: %s\n", entry->d_name);
-        /* chỉ lấy file .mp3 */
-        if (!has_ext(entry->d_name, ".mp3"))
-            continue;
+        char lName[64];
+        char lMp3Path[128];
+        char lBinPath[128];
+        FILE *pBinFile;
+        Sdcard_SongDbType_s lRecord;
 
-        char name[64];
-        remove_ext(name, entry->d_name);
+        printf("Found: %s\n", pEntry->d_name);
 
-        char mp3_path[128];
-        char bin_path[128];
-
-        snprintf(mp3_path, sizeof(mp3_path), "%s/%s.mp3", base_path, name);
-        snprintf(bin_path, sizeof(bin_path), "%s/%s.bin", base_path, name);
-
-        /* kiểm tra có file .bin tương ứng */
-        FILE *f = fopen(bin_path, "rb");
-        if (!f) {
-            printf("Missing bin for %s\n", name);
+        /* Chỉ lấy file .mp3, bỏ qua file khác */
+        if (!Sdcard_HasExtension(pEntry->d_name, ".mp3"))
+        {
             continue;
         }
-        fclose(f);
 
-        /* ghi DB */
-        song_db_t record;
-        memset(&record, 0, sizeof(record));
+        Sdcard_RemoveExtension(lName, sizeof(lName), pEntry->d_name);
 
-        strcpy(record.song_path, mp3_path);
-        strcpy(record.frame_path, bin_path);
+        snprintf(lMp3Path, sizeof(lMp3Path), "%s/%s.mp3", basePath, lName);
+        snprintf(lBinPath, sizeof(lBinPath), "%s/%s.bin", basePath, lName);
 
-        fwrite(&record, sizeof(song_db_t), 1, db);
+        /* Bài hát chỉ hợp lệ nếu có đủ file .bin (frame animation) đi kèm */
+        pBinFile = fopen(lBinPath, "rb");
+        if (pBinFile == NULL)
+        {
+            printf("Missing bin for %s\n", lName);
+            continue;
+        }
+        fclose(pBinFile);
 
-        /* lưu biến global */
-        strcpy(song_list[song_count].song_name, name);
-        song_list[song_count].song_index = song_count;
+        /* Ghi 1 bản ghi vào database */
+        memset(&lRecord, 0, sizeof(lRecord));
+        snprintf(lRecord.songPath, sizeof(lRecord.songPath), "%s", lMp3Path);
+        snprintf(lRecord.framePath, sizeof(lRecord.framePath), "%s", lBinPath);
+        fwrite(&lRecord, sizeof(Sdcard_SongDbType_s), 1, pDb);
 
-#if defined DEVELOPER_CONFIGURATION
-        printf("Added: %s\n", name);
-#endif
-        song_count++;
+        /* Lưu song song vào RAM để menu hiển thị, không cần đọc lại file mỗi lần vẽ */
+        snprintf(gaSongList[gu16SongCount].songName, sizeof(gaSongList[gu16SongCount].songName), "%s", lName);
+
+        #if defined DEVELOPER_CONFIGURATION
+            printf("Added: %s\n", lName);
+        #endif
+
+        gu16SongCount++;
     }
 
-    fclose(db);
-    closedir(dir);
+    fclose(pDb);
+    closedir(pDir);
 
-    printf("Total songs: %d\n", song_count);
+    printf("Total songs: %d\n", gu16SongCount);
 }
 
 /**
- * @brief Read file data base
- * @param 
- * @return 
+ * @brief Sdcard_ReadDbFile
+ * In toàn bộ nội dung file database "/sdcard/songs.db" ra console (debug)
+ * @param
+ * @return
  */
-#if defined DEVELOPER_CONFIGURATION
-void read_db_file(void)
+void Sdcard_ReadDbFile(void)
 {
-    /* open file data base */
-    FILE *db = fopen("/sdcard/songs.db", "rb");
-    if (!db) {
+    FILE *pDb;
+    Sdcard_SongDbType_s lRecord;
+
+    /* Hàm này luôn được biên dịch (dù chỉ hữu ích lúc debug) vì sdcard.h khai báo và
+       audio.c gọi không điều kiện - nếu bọc cả hàm trong #if DEVELOPER_CONFIGURATION như
+       bản gốc, build release (không định nghĩa DEVELOPER_CONFIGURATION) sẽ lỗi linker vì
+       gọi tới hàm không tồn tại. Chỉ nội dung in ra mới cần thiết cho debug, nên chỉ bọc
+       phần đó nếu muốn, còn bản thân hàm luôn tồn tại. */
+    pDb = fopen(SDCARD_DB_PATH, "rb");
+    if (pDb == NULL)
+    {
         printf("Cannot open db\n");
         return;
     }
 
-    song_db_t record;
-
-    /* console data base */
-    while (fread(&record, sizeof(song_db_t), 1, db) == 1)
+    while (fread(&lRecord, sizeof(Sdcard_SongDbType_s), 1, pDb) == 1)
     {
-        printf("MP3: %s\n", record.song_path);
-        printf("BIN: %s\n", record.frame_path);
+        printf("MP3: %s\n", lRecord.songPath);
+        printf("BIN: %s\n", lRecord.framePath);
     }
 
-    fclose(db);
+    fclose(pDb);
 }
-#endif
 
 /**
- * @brief Lấy thông tin song từ index
- * @param index
- * @param out struct lưu info song
- * @return 0 nếu get được info -1 nếu lỗi
+ * @brief Sdcard_GetSongByIndex
+ * Đọc 1 bản ghi trong file database "/sdcard/songs.db" theo chỉ số
+ * @param index: chỉ số bài hát cần lấy (0..gu16SongCount-1)
+ * @param pOut: struct nhận thông tin bài hát
+ * @return true nếu lấy thành công, false nếu lỗi (index ngoài phạm vi, không mở được file...)
  */
-int get_song_by_index(uint16_t index, song_db_t *out)
+bool Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
 {
-    if (index >= song_count || out == NULL)
-        return -1;
+    FILE *pDb;
+    long lOffset;
 
-    FILE *db = fopen("/sdcard/songs.db", "rb");
-    if (!db) {
+    if ((index >= gu16SongCount) || (pOut == NULL))
+    {
+        return false;
+    }
+
+    pDb = fopen(SDCARD_DB_PATH, "rb");
+    if (pDb == NULL)
+    {
         printf("Open DB failed\n");
-        return -1;
+        return false;
     }
 
-    // nhảy tới vị trí index
-    long offset = index * sizeof(song_db_t);
-
-    if (fseek(db, offset, SEEK_SET) != 0) {
+    /* Nhảy thẳng tới bản ghi thứ index, không cần đọc tuần tự từ đầu */
+    lOffset = (long)index * (long)sizeof(Sdcard_SongDbType_s);
+    if (fseek(pDb, lOffset, SEEK_SET) != 0)
+    {
         printf("fseek failed\n");
-        fclose(db);
-        return -1;
+        fclose(pDb);
+        return false;
     }
 
-    // đọc 1 record
-    if (fread(out, sizeof(song_db_t), 1, db) != 1) {
+    if (fread(pOut, sizeof(Sdcard_SongDbType_s), 1, pDb) != 1)
+    {
         printf("fread failed\n");
-        fclose(db);
-        return -1;
+        fclose(pDb);
+        return false;
     }
 
-    fclose(db);
-    return 0;
+    fclose(pDb);
+    return true;
 }
 
-/*===================================================================================================*/
 /**
- * @brief sdcard_task
+ * @brief Sdcard_Task
+ * Task nạp dữ liệu frame animation từ thẻ nhớ vào double buffer cho bài đang phát.
+ * Cùng khuôn thuật toán với Oled_Task (oled.c) để các task trong hệ thống đọc thống nhất,
+ * dễ theo dõi:
+ *
+ * Cơ chế nhận sự kiện:
+ * - Không tự poll trạng thái theo chu kỳ, mà "ngủ" (xTaskNotifyWait, portMAX_DELAY) chờ
+ *   PlayerManager_Task gửi task notification, tiết kiệm CPU khi không có gì thay đổi và
+ *   phản ứng ngay lập tức khi có sự kiện.
+ * - Giá trị notification nhận được chính là gsPlayerContext.buttonState (kiểu
+ *   PlayerManager_ButtonStateType_e) tại thời điểm PlayerManager_Task gửi đi -> không cần
+ *   thêm 1 enum sự kiện riêng cho kênh notification giữa 2 task.
+ * - Giá trị đó được map qua Sdcard_GetLoadState() sang Sdcard_LoadStateType_e (state riêng
+ *   của Sdcard_Task, chỉ dùng nội bộ file này) để switch bên dưới đọc tường minh, thay vì
+ *   phải nhớ buttonState nào cần xử lý.
+ *
+ * 2 nhánh xử lý theo Sdcard_LoadStateType_e:
+ * - SDCARD_LOAD_SONG_CHANGED: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
+ *   -> chạy Sdcard_LoadCurrentSong() mở lại double buffer và nạp dữ liệu cho bài mới.
+ * - SDCARD_LOAD_NONE: sự kiện không liên quan tới việc đổi bài (di chuyển cursor MENU,
+ *   play/pause, peek MENU...) -> bỏ qua, không làm gì.
+ *
+ * Cơ chế lbHasPendingNotify: Sdcard_LoadCurrentSong() có thể thoát sớm vì vừa nhận 1
+ * notification mới (thay vì thoát vì lỗi đọc DB) và đã đọc giá trị đó vào lu32NotifyValue.
+ * Nếu vòng lặp ngoài gọi xTaskNotifyWait() lần nữa ngay lúc đó thì giá trị vừa nhận sẽ bị
+ * mất (thay bằng giá trị chờ tiếp theo). lbHasPendingNotify = true báo cho vòng lặp biết:
+ * bỏ qua bước chờ, xử lý ngay lu32NotifyValue đang có sẵn ở vòng lặp kế tiếp.
+ *
  * @param pvParameters
- * @return
+ * @return không bao giờ return (vòng lặp vô hạn, đúng chuẩn 1 FreeRTOS task)
  */
-/*===================================================================================================*/
-void sdcard_task(void *pvParameters) 
-{    
-    /* khởi tạo thông tin song */
-    song_db_t song;
+void Sdcard_Task(void *pvParameters)
+{
+    /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
+       (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
+    uint32_t lu32NotifyValue;
+    /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32NotifyValue đã có sẵn
+       1 giá trị mới cần xử lý ngay (do Sdcard_LoadCurrentSong vừa trả về) */
+    bool lbHasPendingNotify = false;
 
-    /* init doube buffer */
-    double_buffer_init();
+    /* Khởi tạo double buffer trước khi dùng tới DoubleBuffer_Open()/DoubleBuffer_Close() -
+       truyền xSdCommandQueue để double_buffer.c biết gửi SDCARD_CMD_* tới đâu (xem
+       DoubleBuffer_Init() trong double_buffer.h) */
+    DoubleBuffer_Init(xSdCommandQueue);
 
-    /* đợi trạng thái play lần đầu tiên */
-    xEventGroupWaitBits(system_event_group, SYSTEM_PLAYING_NEW || SYSTEM_NEXT || SYSTEM_PREV, pdTRUE, pdFALSE, portMAX_DELAY);
-
-    while(1) 
+    /* Vòng lặp chính của task, chạy vô hạn cho tới khi thiết bị tắt nguồn */
+    while (1)
     {
-        /* lấy đường dẫn song */
-        get_song_by_index(gsPlayerContext.cursor, &song);
-
-        /* reset double buffer */
-        double_buffer_close();
-
-        /* khởi tạo lại double buffer */
-        double_buffer_open(song.frame_path);
-
-        while (1) 
+        /* Check xem có notify nào đang pending không? nếu không thì chờ notify mới,
+           chờ vô thời hạn (portMAX_DELAY) vì task không có việc gì khác để làm */
+        if (lbHasPendingNotify == false)
         {
-            /* Get status */
-            EventBits_t bits_system_event_group = xEventGroupGetBits(system_event_group);
-            // THOÁT NGAY nếu có SYSTEM_PLAYING_NEW / SYSTEM_NEXT / SYSTEM_PREV
-            if ((bits_system_event_group & SYSTEM_PLAYING_NEW) || (bits_system_event_group & SYSTEM_NEXT) || (bits_system_event_group & SYSTEM_PREV))
-            {
-                break;
-            }
+            xTaskNotifyWait(0, UINT32_MAX, &lu32NotifyValue, portMAX_DELAY);
+        }
+        /* Dùng xong cờ pending cho vòng lặp này -> reset về false, chỉ set lại true
+           bên dưới nếu Sdcard_LoadCurrentSong() báo còn notify chưa xử lý */
+        lbHasPendingNotify = false;
 
-            EventBits_t bits_double_buffer_event = xEventGroupWaitBits(double_buffer_event,
-                                               EVT_PRELOAD | EVT_LOAD_MISS,
-                                               pdTRUE,
-                                               pdFALSE,
-                                               portMAX_DELAY);
-            if (bits_double_buffer_event & (EVT_PRELOAD | EVT_LOAD_MISS)) 
-            {
-                sd_task_load_double_buffer();
-            }    
-        }    
+        /* Map buttonState vừa nhận sang load state riêng của Sdcard_Task rồi rẽ nhánh xử lý */
+        switch (Sdcard_GetLoadState((PlayerManager_ButtonStateType_e)lu32NotifyValue))
+        {
+            case SDCARD_LOAD_SONG_CHANGED:
+                /* Chạy vòng nạp dữ liệu cho bài mới; nếu bị ngắt giữa chừng do có notify
+                   khác tới thì lbHasPendingNotify sẽ được set true để xử lý tiếp ở vòng
+                   lặp kế, không mất giá trị notification vừa nhận */
+                lbHasPendingNotify = Sdcard_LoadCurrentSong(&lu32NotifyValue);
+                break;
+
+            case SDCARD_LOAD_NONE:
+            default:
+                /* Sự kiện không liên quan tới đổi bài -> bỏ qua */
+                break;
+        }
     }
 }

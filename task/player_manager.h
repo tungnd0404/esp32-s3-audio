@@ -59,9 +59,15 @@ typedef enum {
 /* State toàn hệ thống player */
 typedef struct
 {
-    PlayerManager_MainStateType_e mainState;
+    /* mainState/playbackState: volatile vì được đọc liên tục trong vòng lặp while của
+       task khác (Oled_PlayAnimation - oled.c, Mp3_StreamCurrentSong - mp3.c) ngoài cơ chế
+       task notification - không có volatile, compiler được phép cache giá trị trong thanh
+       ghi qua nhiều vòng lặp nếu không thấy lời gọi hàm nào "chắc chắn" thay đổi nó, khiến
+       vòng lặp có thể không bao giờ nhận ra PlayerManager_Task vừa đổi giá trị (vd không
+       dừng lại khi Pause) */
+    volatile PlayerManager_MainStateType_e mainState;
     PlayerManager_ButtonStateType_e buttonState;
-    PlayerManager_PlaybackStateType_e playbackState;
+    volatile PlayerManager_PlaybackStateType_e playbackState;
     uint32_t cursor;
     uint32_t currentSong;
     uint32_t totalSong;

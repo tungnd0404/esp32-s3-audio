@@ -46,17 +46,17 @@ void Menu_Draw(SSD1306_t *dev)
     {
         /* Menu_UpdateScroll luôn đảm bảo gi32StartIndex >= 0 trước khi Draw được gọi */
         uint32_t lu32ItemIndex = (uint32_t)gi32StartIndex + lu32Line;
-        if (lu32ItemIndex >= song_count) break;
+        if (lu32ItemIndex >= gu16SongCount) break;
 
         char lacLine[32];
 
         if (lu32ItemIndex == lu32Cursor)
         {
-            snprintf(lacLine, sizeof(lacLine), "> %.27s", song_list[lu32ItemIndex].song_name);
+            snprintf(lacLine, sizeof(lacLine), "> %.27s", gaSongList[lu32ItemIndex].songName);
         }
         else
         {
-            snprintf(lacLine, sizeof(lacLine), "  %.27s", song_list[lu32ItemIndex].song_name);
+            snprintf(lacLine, sizeof(lacLine), "  %.27s", gaSongList[lu32ItemIndex].songName);
         }
 
         ssd1306_display_text(dev, lu32Line, lacLine, strlen(lacLine), false);
@@ -90,11 +90,11 @@ void Menu_UpdateScroll(void)
         gi32StartIndex = 0;
     }
 
-    /* Chỉ giới hạn theo song_count - MAX_LINES khi thực sự nhiều bài hơn số dòng hiển thị,
-       tránh (song_count - MENU_MAX_DISPLAY_LINES) âm khi danh sách ít bài hơn 1 màn hình */
-    if ((int32_t)song_count > MENU_MAX_DISPLAY_LINES)
+    /* Chỉ giới hạn theo gu16SongCount - MAX_LINES khi thực sự nhiều bài hơn số dòng hiển thị,
+       tránh (gu16SongCount - MENU_MAX_DISPLAY_LINES) âm khi danh sách ít bài hơn 1 màn hình */
+    if ((int32_t)gu16SongCount > MENU_MAX_DISPLAY_LINES)
     {
-        int32_t li32MaxStartIndex = (int32_t)song_count - MENU_MAX_DISPLAY_LINES;
+        int32_t li32MaxStartIndex = (int32_t)gu16SongCount - MENU_MAX_DISPLAY_LINES;
         if (gi32StartIndex > li32MaxStartIndex)
         {
             gi32StartIndex = li32MaxStartIndex;

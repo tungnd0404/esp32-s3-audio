@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(powershell -c \"Get-Content 'e:/project/Audio/driver/button/button.h'\")"
+      "Bash(powershell -c \"Get-Content 'e:/project/Audio/driver/button/button.h'\")",
+      "Bash(grep -c '/\\\\*' \"e:/project/Audio/driver/buffer/double_buffer.c\")"
     ]
   }
 }
