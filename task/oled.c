@@ -13,8 +13,15 @@
  *  MACROS / DEFINES
  * =================================================== */
 
-/* Chu kỳ vẽ 1 frame animation khi đang PLAYING (ms) */
-#define OLED_ANIMATION_DELAY_MS     40U
+/* Tốc độ khung hình animation thật (dữ liệu frame.bin), lấy theo FRAME_PER_SECOND (config.h) */
+#define OLED_ANIMATION_FRAME_INTERVAL_MS   (1000U / FRAME_PER_SECOND)
+
+/* Chu kỳ vTaskDelay giữa các lần poll trong Oled_PlayAnimation: vẫn phải delay để nhường
+   CPU cho task khác, nhưng poll nhanh gấp đôi tốc độ frame thật để bắt kịp thời điểm
+   frame_index vừa đổi sớm hơn thay vì phải chờ tới gần hết 1 chu kỳ frame. Phần poll dư
+   thừa (frame chưa đổi) được lọc bỏ, không vẽ lại, nhờ điều kiện so sánh với frame vẽ lần
+   trước bên trong Oled_PlayAnimation */
+#define OLED_ANIMATION_DELAY_MS            (OLED_ANIMATION_FRAME_INTERVAL_MS / 2U)
 
 /* Số page của màn hình SSD1306 128x64 (mỗi page cao 8px) */
 #define OLED_PAGE_COUNT             8U
@@ -108,6 +115,13 @@ static void Oled_DrawFrame(SSD1306_t *dev, uint8_t *au8Frame)
  */
 static bool Oled_PlayAnimation(SSD1306_t *dev, uint32_t *pu32NotifyValue)
 {
+    /* Frame hiện tại */
+    uint32_t lu32FrameIndex = 0;
+    /* Frame vừa vẽ lần gần nhất, dùng để tránh vẽ lại khi frame_index chưa đổi.
+       Khởi tạo UINT32_MAX (không phải chỉ số frame hợp lệ) để đảm bảo frame đầu tiên của
+       lần gọi này luôn được vẽ, không bị hiểu nhầm là "trùng frame" với lần gọi trước đó */
+    uint32_t lu32LastDrawnFrameIndex = UINT32_MAX;
+
     /* Còn animation khi: đang ở màn hình PLAYING và playbackState không phải PAUSE.
        Dùng playbackState (tồn tại liên tục) thay vì buttonState (chỉ tồn tại trong
        khoảnh khắc xử lý 1 lần bấm nút rồi tự về IDLE) */
@@ -119,11 +133,21 @@ static bool Oled_PlayAnimation(SSD1306_t *dev, uint32_t *pu32NotifyValue)
             return true;
         }
 
-        /* Lấy frame_index đồng bộ theo thời gian giải mã mp3 hiện tại rồi vẽ lên màn hình */
-        uint32_t lu32FrameIndex = syncFrameWithMp3();
-        double_buffer_get_frame(lu32FrameIndex, gau8Frame);
-        Oled_DrawFrame(dev, gau8Frame);
+        /* Lấy frame_index đồng bộ theo thời gian giải mã mp3 hiện tại */
+        lu32FrameIndex = SyncFrame_GetFrameIndex();
 
+        /* Chỉ đọc double buffer + vẽ lại khi frame thực sự đổi so với lần vẽ trước,
+           tránh tốn CPU và băng thông I2C/SPI để vẽ lại đúng 1 frame nhiều lần liên tiếp
+           (do OLED_ANIMATION_DELAY_MS poll nhanh hơn tốc độ frame thật) */
+        if (lu32FrameIndex != lu32LastDrawnFrameIndex)
+        {
+            double_buffer_get_frame(lu32FrameIndex, gau8Frame);
+            Oled_DrawFrame(dev, gau8Frame);
+            lu32LastDrawnFrameIndex = lu32FrameIndex;
+        }
+
+        /* Vẫn phải delay dù frame có đổi hay không, để nhường CPU cho task khác
+           (sdcard_task, player_manager_task...) thay vì busy-poll liên tục */
         vTaskDelay(pdMS_TO_TICKS(OLED_ANIMATION_DELAY_MS));
     }
 
@@ -165,7 +189,7 @@ void Oled_Init(SSD1306_t *dev)
  * - OLED_DISPLAY_MENU: cursor di chuyển hoặc double click thoát PLAYING về MENU
  *   -> Menu_UpdateScroll() + Menu_Draw() vẽ lại danh sách bài hát.
  * - OLED_DISPLAY_SONG_CHANGED: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
- *   -> initSync() reset lại mốc đồng bộ thời gian giải mã, rồi chạy Oled_PlayAnimation().
+ *   -> SyncFrame_Init() reset lại mốc đồng bộ thời gian giải mã, rồi chạy Oled_PlayAnimation().
  * - OLED_DISPLAY_PLAY_PAUSE: bấm Play/Pause hoặc auto-return từ MENU về lại PLAYING, bài
  *   không đổi -> chạy thẳng Oled_PlayAnimation(), không reset đồng bộ.
  *
@@ -220,14 +244,14 @@ void Oled_Task(void *pvParameters)
             case OLED_DISPLAY_SONG_CHANGED:
                 /* Bài mới -> reset mốc thời gian đồng bộ giải mã mp3 về 0 trước khi vẽ animation,
                    tránh dùng nhầm mốc thời gian của bài phát trước đó */
-                initSync();
+                SyncFrame_Init();
                 /* Chạy vòng vẽ animation cho bài mới; nếu bị ngắt giữa chừng do có notify khác
                    tới thì lbHasPendingNotify sẽ được set true để xử lý tiếp ở vòng lặp kế */
                 lbHasPendingNotify = Oled_PlayAnimation(dev, &lu32NotifyValue);
                 break;
 
             case OLED_DISPLAY_PLAY_PAUSE:
-                /* Không đổi bài nên không cần initSync() lại -> chạy thẳng animation,
+                /* Không đổi bài nên không cần SyncFrame_Init() lại -> chạy thẳng animation,
                    Oled_PlayAnimation() tự đọc gsPlayerContext.playbackState để biết
                    nên tiếp tục vẽ (PLAY) hay dừng ngay vòng lặp đầu tiên (PAUSE) */
                 lbHasPendingNotify = Oled_PlayAnimation(dev, &lu32NotifyValue);

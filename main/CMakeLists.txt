@@ -11,6 +11,8 @@ idf_component_register(
         "../task/oled.c"
         "../task/sdcard.c"
         "../task/player_manager.c"
+        "../task/mp3.c"
+        "../task/srm.c"
 
     INCLUDE_DIRS
         "."

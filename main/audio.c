@@ -8,11 +8,16 @@
 #include "menu.h"
 #include "button.h"
 #include "player_manager.h"
+#include "srm.h"
 
 SSD1306_t dev;
 
 void app_main(void)
 {
+    /* srm init - phải gọi đầu tiên, trước khi tạo bất kỳ task nào (tạo mutex bảo vệ
+       registry lúc còn đơn luồng, xem Srm_Init() trong srm.c) */
+    Srm_Init();
+
     /* mount sd card */
     sdcard_mount();
     /* scan and get info of mp3 and frame */
