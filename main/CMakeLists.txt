@@ -12,7 +12,7 @@ idf_component_register(
         "../task/sdcard.c"
         "../task/player_manager.c"
         "../task/mp3.c"
-        "../task/srm.c"
+        "../driver/srm/srm.c"
 
     INCLUDE_DIRS
         "."
@@ -21,4 +21,5 @@ idf_component_register(
         "../config"
         "../task"
         "../driver/button"
+        "../driver/srm"
 )
