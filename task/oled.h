@@ -25,7 +25,8 @@ extern TaskHandle_t xOledTaskHandle;
 
 /**
  * @brief Oled_Init
- * Khởi tạo màn hình OLED (I2C + SSD1306)
+ * Khởi tạo màn hình OLED (I2C + SSD1306), đăng ký luôn buffer đích nhận frame animation cho
+ * DoubleBuffer_GetFrame() (xem double_buffer.h)
  * @param dev: con trỏ device SSD1306
  * @return
  */

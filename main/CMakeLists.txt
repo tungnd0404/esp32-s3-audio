@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "Audio.c"
         "../driver/buffer/double_buffer.c"
+        "../driver/buffer/ring_buffer.c"
         "../driver/buffer/sync_frame.c"
         "../driver/ssd1306/menu.c"
         "../driver/ssd1306/ssd1306_i2c_new.c"

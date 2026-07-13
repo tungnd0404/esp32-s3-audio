@@ -31,16 +31,15 @@ typedef enum {
 
     /* --- Lệnh cho tài nguyên double buffer animation (owner: Sdcard_Task, xem
        driver/buffer/double_buffer.c/h) --- */
-    /* Yêu cầu nạp trước buffer còn lại - gửi qua Srm_SendCommand nhưng owner (Sdcard_Task)
-       trả lời NGAY khi nhận được (ack "đã nhận", payload trả về không có ý nghĩa), TRƯỚC
-       KHI thực sự nạp - nhờ vậy bên gửi không phải chờ tới lúc nạp xong thật mới được trả
-       lời, gần như không chặn dù cùng đi qua kênh blocking như SDCARD_CMD_LOAD_MISSING_FRAME
-       (xem Sdcard_HandleCommand trong sdcard.c) */
-    SDCARD_CMD_PRELOAD_BUFFER,
-    /* Yêu cầu nạp gấp đúng frame đang thiếu (payload = chỉ số frame cần), gửi qua
-       Srm_SendCommand - owner chỉ trả lời SAU KHI đã nạp xong thật (payload trả về: 1 =
-       thành công, 0 = thất bại) vì bên gửi cần biết kết quả trước khi đọc tiếp frame đó */
-    SDCARD_CMD_LOAD_MISSING_FRAME,
+    /* Yêu cầu lấy dữ liệu 1 frame theo chỉ số (payload = chỉ số frame cần), gửi qua
+       Srm_SendCommand từ Oled_Task. Owner (Sdcard_Task) chạy thẳng DoubleBuffer_GetFrame()
+       trên chính thread của mình - tự lo cả nạp trước lẫn nạp gấp nếu thiếu bằng lời gọi
+       hàm thường (không round-trip SRM thêm lần nào nữa, khác thiết kế cũ tách riêng
+       SDCARD_CMD_PRELOAD_BUFFER/SDCARD_CMD_LOAD_MISSING_FRAME) - rồi mới trả lời (payload
+       trả về: 1 = thành công, 0 = thất bại). DoubleBuffer_GetFrame() ghi thẳng vào buffer
+       Oled_Task đã đăng ký sẵn qua DoubleBuffer_SetOutputBuffer(), nên Srm_Message_s không
+       cần mang thêm con trỏ đích. */
+    SDCARD_CMD_GET_FRAME,
 
     /* Luôn đặt cuối cùng - không phải lệnh thật, dùng để Srm_SendCommand validate cmdId
        truyền vào có hợp lệ hay không (cmdId >= SRM_CMD_INVALID -> từ chối, không gửi) */

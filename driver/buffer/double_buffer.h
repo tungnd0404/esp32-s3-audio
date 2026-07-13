@@ -7,8 +7,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -26,16 +24,29 @@
 
 /**
  * @brief DoubleBuffer_Init
- * Khởi tạo module double buffer (tạo mutex bảo vệ dữ liệu). Phải gọi trước khi dùng bất kỳ
- * hàm nào khác của module này.
- * @param xOwnerCommandQueue: command queue của task sở hữu dữ liệu nguồn (đọc file
- *        frame.bin từ thẻ SD - hiện là xSdCommandQueue của Sdcard_Task, xem sdcard.h).
- *        DoubleBuffer_GetFrame() gửi yêu cầu nạp trước/nạp gấp qua SRM tới đúng queue này
- *        (xem srm.h) - module không tự biết ai là owner, nhận qua tham số để không phải
- *        include ngược lại sdcard.h
+ * Khởi tạo module double buffer (reset toàn bộ trạng thái buffer về ban đầu). CHỈ được gọi
+ * bởi Sdcard_Task - đây là owner duy nhất của module này, mọi hàm khác trong file này cũng
+ * chỉ Sdcard_Task được gọi (trực tiếp, hoặc qua Sdcard_HandleCommand khi nhận
+ * SDCARD_CMD_GET_FRAME từ Oled_Task - xem sdcard.c). Vì chỉ 1 thread duy nhất từng đụng vào
+ * dữ liệu module này, không cần mutex bảo vệ như thiết kế cũ. Phải gọi trước
+ * DoubleBuffer_Open()/DoubleBuffer_GetFrame().
+ * @param
  * @return
  */
-void DoubleBuffer_Init(QueueHandle_t xOwnerCommandQueue);
+void DoubleBuffer_Init(void);
+
+/**
+ * @brief DoubleBuffer_SetOutputBuffer
+ * Đăng ký buffer đích nhận dữ liệu frame cho DoubleBuffer_GetFrame(). Gọi ĐÚNG 1 LẦN lúc
+ * khởi động (từ Oled_Init(), trước khi bất kỳ task nào chạy) bởi bên ĐỌC dữ liệu (Oled_Task)
+ * - khác với mọi hàm còn lại trong file này (chỉ Sdcard_Task gọi). Nhờ đăng ký sẵn 1 lần,
+ * request SDCARD_CMD_GET_FRAME qua SRM chỉ cần mang đúng 1 giá trị (chỉ số frame) mà không
+ * cần mở rộng Srm_Message_s để mang thêm con trỏ đích mỗi lần gọi.
+ * @param pOutFrame: buffer đích, kích thước tối thiểu FRAME_SIZE byte, phải còn tồn tại
+ *        suốt vòng đời chương trình (Oled_Task truyền buffer static của chính nó)
+ * @return
+ */
+void DoubleBuffer_SetOutputBuffer(uint8_t *pOutFrame);
 
 /**
  * @brief DoubleBuffer_Open
@@ -55,48 +66,15 @@ void DoubleBuffer_Open(const char *path);
 void DoubleBuffer_Close(void);
 
 /**
- * @brief DoubleBuffer_TotalFrames
- * Lấy tổng số frame của file frame.bin đang mở
- * @param
- * @return tổng số frame, 0 nếu module chưa init hoặc chưa mở file nào
- */
-uint32_t DoubleBuffer_TotalFrames(void);
-
-/**
  * @brief DoubleBuffer_GetFrame
- * Lấy dữ liệu 1 frame theo chỉ số. Nếu frame chưa có sẵn trong buffer, tự gửi yêu cầu nạp
- * gấp (SDCARD_CMD_LOAD_MISSING_FRAME, qua Srm_SendCommand) tới owner task và chờ tối đa
- * DOUBLE_BUFFER_SRM_TIMEOUT_MS trước khi trả về false. Khi phát hiện buffer đang đọc sắp
- * hết, tự gửi thêm gợi ý nạp trước buffer còn lại (SDCARD_CMD_PRELOAD_BUFFER, cũng qua
- * Srm_SendCommand nhưng owner trả lời ngay lập tức trước khi thực sự nạp - xem
- * Sdcard_HandleCommand trong sdcard.c - nên gần như không chặn dù cùng đi qua API blocking).
- * @param index: chỉ số frame cần lấy (0..DoubleBuffer_TotalFrames()-1)
- * @param pOutFrame: buffer đích nhận dữ liệu, kích thước tối thiểu FRAME_SIZE byte
- * @return true nếu lấy thành công, false nếu index ngoài phạm vi, pOutFrame NULL, hoặc
- *         owner task không phản hồi kịp yêu cầu nạp gấp
+ * Lấy dữ liệu 1 frame theo chỉ số, ghi thẳng vào buffer đã đăng ký qua
+ * DoubleBuffer_SetOutputBuffer(). CHỈ được gọi bởi Sdcard_Task (qua Sdcard_HandleCommand khi
+ * nhận SDCARD_CMD_GET_FRAME) - vì luôn chạy trên chính thread của Sdcard_Task, hàm tự nạp
+ * trước/nạp gấp bằng lời gọi hàm thường (không cần mutex hay round-trip SRM nào khác).
+ * @param index: chỉ số frame cần lấy (0..tổng số frame của bài đang mở - 1)
+ * @return true nếu lấy thành công, false nếu index ngoài phạm vi, chưa đăng ký buffer đích
+ *         (DoubleBuffer_SetOutputBuffer chưa từng gọi), hoặc đọc thẻ SD thất bại
  */
-bool DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame);
-
-/**
- * @brief DoubleBuffer_Preload
- * Nạp trước buffer hiện không phục vụ đọc (buffer còn lại so với buffer đang dùng), nối
- * tiếp ngay sau buffer đang dùng. CHỈ được gọi bởi owner task (Sdcard_Task) khi nhận lệnh
- * SDCARD_CMD_PRELOAD_BUFFER qua SRM - không tự tính toán gì thêm, chỉ nạp nếu trước đó đã
- * có yêu cầu nạp trước đang chờ (tránh nạp thừa khi có nhiều gợi ý dồn lại).
- * @param
- * @return true nếu nạp thành công, false nếu không có gì cần nạp hoặc nạp thất bại
- */
-bool DoubleBuffer_Preload(void);
-
-/**
- * @brief DoubleBuffer_LoadFrame
- * Nạp gấp đúng frame theo chỉ số yêu cầu vào buffer hiện không phục vụ đọc. CHỈ được gọi
- * bởi owner task (Sdcard_Task) khi nhận lệnh SDCARD_CMD_LOAD_MISSING_FRAME qua SRM.
- * @param index: chỉ số frame cần nạp gấp
- * @return true nếu nạp thành công (frame đã có trong buffer, sẵn sàng cho
- *         DoubleBuffer_GetFrame() đọc lại), false nếu thất bại (index ngoài phạm vi, lỗi
- *         đọc thẻ SD...)
- */
-bool DoubleBuffer_LoadFrame(uint32_t index);
+bool DoubleBuffer_GetFrame(uint32_t index);
 
 #endif /* DOUBLE_BUFFER_H */

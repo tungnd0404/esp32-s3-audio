@@ -2,21 +2,10 @@
  *  INCLUDE FILES
  * =================================================== */
 
+#include <stdio.h>
 #include <string.h>
 #include "double_buffer.h"
 #include "esp_log.h"
-#include "srm.h"
-
-/* ===================================================
- *  MACROS / DEFINES
- * =================================================== */
-
-/* Thời gian tối đa chờ owner task (Sdcard_Task) phản hồi 1 request gửi qua Srm_SendCommand()
-   (ms): với SDCARD_CMD_LOAD_MISSING_FRAME là chờ nạp gấp xong thật; với
-   SDCARD_CMD_PRELOAD_BUFFER chỉ là chờ owner "nhận lệnh" (ack ngay, xem
-   Sdcard_HandleCommand trong sdcard.c) nên trong trường hợp bình thường trả lời gần như
-   tức thì, không thực sự chờ tới hết giá trị này */
-#define DOUBLE_BUFFER_SRM_TIMEOUT_MS   5000U
 
 /* ===================================================
  *  LOCAL VARIABLES
@@ -24,7 +13,9 @@
 
 static const char *TAG = "DOUBLE_BUFFER";
 
-/* Hai vùng đệm chính, luân phiên phục vụ đọc (xem gbUsingA) */
+/* Hai vùng đệm chính, luân phiên phục vụ đọc (xem gbUsingA). CHỈ Sdcard_Task đụng vào -
+   Oled_Task không còn đọc thẳng mảng này (xem DoubleBuffer_GetFrame/SetOutputBuffer trong
+   double_buffer.h) nên không cần mutex bảo vệ như thiết kế cũ */
 static uint8_t gau8BufferA[CACHE_FRAMES][FRAME_SIZE];
 static uint8_t gau8BufferB[CACHE_FRAMES][FRAME_SIZE];
 
@@ -43,27 +34,17 @@ static bool gbReadyB = false;
 /* Buffer nào đang phục vụ DoubleBuffer_GetFrame() */
 static bool gbUsingA = true;
 
-/* Tránh gửi gợi ý nạp trước (SDCARD_CMD_PRELOAD_BUFFER) nhiều lần cho cùng 1 buffer trong
-   lúc owner task chưa kịp xử lý xong yêu cầu trước đó */
-static bool gbPreloadRequestedForA = false;
-static bool gbPreloadRequestedForB = false;
-
-/* Mutex bảo vệ toàn bộ trạng thái tĩnh phía trên (2 buffer, start/count/ready của mỗi
-   buffer, gbUsingA, cờ preload, gpFrameFile, gu32TotalFrames) khỏi truy cập đồng thời giữa
-   Oled_Task (đọc, qua DoubleBuffer_GetFrame) và Sdcard_Task (ghi, qua
-   DoubleBuffer_Preload/DoubleBuffer_LoadFrame) */
-static SemaphoreHandle_t gxMutexDoubleBuffer = NULL;
-
-/* Command queue của owner task (Sdcard_Task) - nhận qua tham số DoubleBuffer_Init(), dùng
-   để gửi SDCARD_CMD_PRELOAD_BUFFER/SDCARD_CMD_LOAD_MISSING_FRAME qua SRM. Module này không
-   tự biết ai là owner (tránh include ngược lại sdcard.h) */
-static QueueHandle_t gxOwnerCommandQueue = NULL;
-
 /* Con trỏ FILE đang mở (đọc frame.bin) */
 static FILE *gpFrameFile = NULL;
 
 /* Tổng số frame của bài hiện tại (kích thước file / FRAME_SIZE) */
 static uint32_t gu32TotalFrames = 0;
+
+/* Buffer đích nhận dữ liệu frame, do Oled_Task đăng ký đúng 1 lần lúc khởi động (xem
+   DoubleBuffer_SetOutputBuffer). DoubleBuffer_GetFrame() memcpy thẳng vào đây rồi mới trả
+   lời qua SRM (Sdcard_HandleCommand trong sdcard.c), nên khi Oled_Task nhận được phản hồi
+   thì dữ liệu đã sẵn sàng trong buffer này */
+static uint8_t *gpOutputFrame = NULL;
 
 /* ===================================================
  *  LOCAL FUNCTION
@@ -72,7 +53,7 @@ static uint32_t gu32TotalFrames = 0;
 /**
  * @brief DoubleBuffer_LoadInternal
  * Nạp dữ liệu từ gpFrameFile vào 1 buffer cụ thể, bắt đầu từ frame index, tối đa
- * CACHE_FRAMES frame hoặc tới hết file. PHẢI được gọi trong lúc đã giữ gxMutexDoubleBuffer.
+ * CACHE_FRAMES frame hoặc tới hết file.
  * @param au8Buffer: buffer đích, mảng 2 chiều [CACHE_FRAMES][FRAME_SIZE]
  * @param pu32Start: [out] chỉ số frame đầu tiên nạp được, chỉ ghi khi nạp thành công
  * @param pu32Count: [out] số frame thực tế nạp được, chỉ ghi khi nạp thành công
@@ -133,7 +114,7 @@ static bool DoubleBuffer_LoadInternal(uint8_t au8Buffer[][FRAME_SIZE], uint32_t 
 /**
  * @brief DoubleBuffer_FlipBuffer
  * Chuyển buffer đang phục vụ đọc (gbUsingA) sang buffer còn lại nếu buffer đó đã sẵn sàng
- * và đang chứa đúng frame cần. PHẢI được gọi trong lúc đã giữ gxMutexDoubleBuffer.
+ * và đang chứa đúng frame cần.
  * @param index: chỉ số frame đang cần đọc
  * @return true nếu đã chuyển và buffer mới đang chứa frame cần, false nếu chưa thể chuyển
  */
@@ -171,14 +152,7 @@ static bool DoubleBuffer_FlipBuffer(uint32_t index)
  *  GLOBAL FUNCTION
  * =================================================== */
 
-/**
- * @brief DoubleBuffer_Init
- * Khởi tạo module double buffer (tạo mutex bảo vệ dữ liệu). Phải gọi trước khi dùng bất kỳ
- * hàm nào khác của module này.
- * @param xOwnerCommandQueue: command queue của task sở hữu dữ liệu nguồn (xem double_buffer.h)
- * @return
- */
-void DoubleBuffer_Init(QueueHandle_t xOwnerCommandQueue)
+void DoubleBuffer_Init(void)
 {
     gu32StartA = 0;
     gu32StartB = 0;
@@ -187,39 +161,19 @@ void DoubleBuffer_Init(QueueHandle_t xOwnerCommandQueue)
     gbReadyA = false;
     gbReadyB = false;
     gbUsingA = true;
-    gbPreloadRequestedForA = false;
-    gbPreloadRequestedForB = false;
     gpFrameFile = NULL;
     gu32TotalFrames = 0;
-
-    gxOwnerCommandQueue = xOwnerCommandQueue;
-
-    gxMutexDoubleBuffer = xSemaphoreCreateMutex();
-    if (gxMutexDoubleBuffer == NULL)
-    {
-        ESP_LOGE(TAG, "Failed to create mutex");
-        return;
-    }
 
     ESP_LOGI(TAG, "Double buffer module initialized");
 }
 
-/**
- * @brief DoubleBuffer_Open
- * Mở file frame.bin của bài hát mới, nạp đầy 2 buffer A và B ban đầu
- * @param path: đường dẫn file frame.bin
- * @return
- */
+void DoubleBuffer_SetOutputBuffer(uint8_t *pOutFrame)
+{
+    gpOutputFrame = pOutFrame;
+}
+
 void DoubleBuffer_Open(const char *path)
 {
-    if (gxMutexDoubleBuffer == NULL)
-    {
-        ESP_LOGE(TAG, "Module not initialized. Call DoubleBuffer_Init() first.");
-        return;
-    }
-
-    xSemaphoreTake(gxMutexDoubleBuffer, portMAX_DELAY);
-
     if (gpFrameFile != NULL)
     {
         fclose(gpFrameFile);
@@ -230,7 +184,6 @@ void DoubleBuffer_Open(const char *path)
     if (gpFrameFile == NULL)
     {
         ESP_LOGE(TAG, "Cannot open %s", path);
-        xSemaphoreGive(gxMutexDoubleBuffer);
         return;
     }
 
@@ -248,8 +201,6 @@ void DoubleBuffer_Open(const char *path)
     gbReadyB = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, lu32StartBufferB);
 
     gbUsingA = true;
-    gbPreloadRequestedForA = false;
-    gbPreloadRequestedForB = false;
 
     if ((gbReadyA == false) && (gbReadyB == false))
     {
@@ -258,27 +209,10 @@ void DoubleBuffer_Open(const char *path)
         gpFrameFile = NULL;
         gu32TotalFrames = 0;
     }
-
-    xSemaphoreGive(gxMutexDoubleBuffer);
 }
 
-/**
- * @brief DoubleBuffer_Close
- * Đóng file frame.bin đang mở, reset toàn bộ trạng thái buffer về ban đầu
- * @param
- * @return
- */
 void DoubleBuffer_Close(void)
 {
-    /* Module chưa init (hoặc init thất bại) -> chưa có mutex để lấy, tránh
-       xSemaphoreTake(NULL, ...) là undefined behavior */
-    if (gxMutexDoubleBuffer == NULL)
-    {
-        return;
-    }
-
-    xSemaphoreTake(gxMutexDoubleBuffer, portMAX_DELAY);
-
     if (gpFrameFile != NULL)
     {
         fclose(gpFrameFile);
@@ -293,270 +227,97 @@ void DoubleBuffer_Close(void)
     gu32CountB = 0;
     gbUsingA = true;
     gu32TotalFrames = 0;
-    gbPreloadRequestedForA = false;
-    gbPreloadRequestedForB = false;
-
-    xSemaphoreGive(gxMutexDoubleBuffer);
 }
 
-/**
- * @brief DoubleBuffer_TotalFrames
- * Lấy tổng số frame của file frame.bin đang mở
- * @param
- * @return tổng số frame, 0 nếu module chưa init hoặc chưa mở file nào
- */
-uint32_t DoubleBuffer_TotalFrames(void)
+bool DoubleBuffer_GetFrame(uint32_t index)
 {
-    if (gxMutexDoubleBuffer == NULL)
+    if ((gpOutputFrame == NULL) || (index >= gu32TotalFrames))
     {
-        return 0;
-    }
-
-    xSemaphoreTake(gxMutexDoubleBuffer, portMAX_DELAY);
-    uint32_t lu32Ret = gu32TotalFrames;
-    xSemaphoreGive(gxMutexDoubleBuffer);
-    return lu32Ret;
-}
-
-/**
- * @brief DoubleBuffer_GetFrame
- * Lấy dữ liệu 1 frame theo chỉ số, tự nạp gấp qua SRM nếu chưa có sẵn (xem double_buffer.h)
- * @param index: chỉ số frame cần lấy
- * @param pOutFrame: buffer đích, kích thước tối thiểu FRAME_SIZE byte
- * @return true nếu lấy thành công, false nếu lỗi hoặc owner task không phản hồi kịp
- */
-bool DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame)
-{
-    if (pOutFrame == NULL)
-    {
-        return false;
-    }
-
-    if (index >= DoubleBuffer_TotalFrames())
-    {
-        ESP_LOGE(TAG, "Index %lu out of range (max %lu)", index, gu32TotalFrames);
         return false;
     }
 
     /* Vòng lặp retry (không đệ quy) - thử tìm frame trong buffer hiện có, nếu không có thì
-       gửi yêu cầu nạp gấp rồi quay lại thử tiếp */
+       tự nạp gấp rồi quay lại thử tiếp. Không cần mutex hay SRM nội bộ - hàm này luôn chạy
+       trên chính thread của Sdcard_Task (owner duy nhất), không có ai khác tranh chấp */
     while (1)
     {
-        bool lbFound = false;
-
-        xSemaphoreTake(gxMutexDoubleBuffer, portMAX_DELAY);
-
-        if ((gbUsingA == true) && (gbReadyA == true))
+        if ((gbUsingA == true) && (gbReadyA == true) &&
+            (index >= gu32StartA) && (index < gu32StartA + gu32CountA))
         {
-            if ((index >= gu32StartA) && (index < gu32StartA + gu32CountA))
-            {
-                memcpy(pOutFrame, gau8BufferA[index - gu32StartA], FRAME_SIZE);
-                lbFound = true;
+            memcpy(gpOutputFrame, gau8BufferA[index - gu32StartA], FRAME_SIZE);
 
-                /* Đã đọc quá 80% buffer A và chưa gửi gợi ý nạp trước cho B -> gửi ngay.
-                   Dùng Srm_SendCommand (không phải notify riêng) để chỉ 1 API gửi lệnh duy
-                   nhất cho mọi request tới Sdcard_Task - Sdcard_Task trả lời NGAY (ack) khi
-                   nhận được lệnh này, TRƯỚC KHI thực sự nạp (xem Sdcard_HandleCommand), nên
-                   lời gọi dưới đây thường trả về gần như tức thì, không phải chờ tới lúc
-                   nạp xong thật mới được trả lời - không có rủi ro deadlock vì owner task
-                   chỉ lấy mutex SAU khi đã trả lời xong, không phải trước */
-                if ((gbPreloadRequestedForB == false) && ((index - gu32StartA) > (gu32CountA * 8U / 10U)))
+            /* Đã đọc quá 80% buffer A và buffer B chưa sẵn sàng -> nạp trước ngay bằng lời
+               gọi hàm thường (không cần "cờ đã yêu cầu" như thiết kế SRM cũ, vì nạp trước
+               diễn ra đồng bộ ngay trong lần gọi này, không có khoảng trễ nào để lặp lại) */
+            if ((gbReadyB == false) && ((index - gu32StartA) > (gu32CountA * 8U / 10U)))
+            {
+                uint32_t lu32LoadIndex = gu32StartA + gu32CountA;
+                if (lu32LoadIndex < gu32TotalFrames)
                 {
-                    gbPreloadRequestedForB = true;
-                    uint32_t lu32PreloadAck = 0U;
-                    Srm_SendCommand(gxOwnerCommandQueue, SDCARD_CMD_PRELOAD_BUFFER, &lu32PreloadAck,
-                                     pdMS_TO_TICKS(DOUBLE_BUFFER_SRM_TIMEOUT_MS));
-                    ESP_LOGD(TAG, "Preload requested for buffer B at index %lu", index);
+                    gbReadyB = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, lu32LoadIndex);
+                    ESP_LOGD(TAG, "Preloaded buffer B at index %lu, ready=%d", lu32LoadIndex, (int)gbReadyB);
                 }
             }
-        }
-        else if ((gbUsingA == false) && (gbReadyB == true))
-        {
-            if ((index >= gu32StartB) && (index < gu32StartB + gu32CountB))
-            {
-                memcpy(pOutFrame, gau8BufferB[index - gu32StartB], FRAME_SIZE);
-                lbFound = true;
 
-                if ((gbPreloadRequestedForA == false) && ((index - gu32StartB) > (gu32CountB * 8U / 10U)))
-                {
-                    gbPreloadRequestedForA = true;
-                    uint32_t lu32PreloadAck = 0U;
-                    Srm_SendCommand(gxOwnerCommandQueue, SDCARD_CMD_PRELOAD_BUFFER, &lu32PreloadAck,
-                                     pdMS_TO_TICKS(DOUBLE_BUFFER_SRM_TIMEOUT_MS));
-                    ESP_LOGD(TAG, "Preload requested for buffer A at index %lu", index);
-                }
-            }
-        }
-
-        if (lbFound == false)
-        {
-            /* Không có trong buffer đang dùng -> thử chuyển sang buffer còn lại */
-            if (DoubleBuffer_FlipBuffer(index) == true)
-            {
-                xSemaphoreGive(gxMutexDoubleBuffer);
-                continue;
-            }
-        }
-
-        xSemaphoreGive(gxMutexDoubleBuffer);
-
-        if (lbFound == true)
-        {
             return true;
         }
 
-        /* Không có buffer nào chứa frame cần -> gửi yêu cầu nạp gấp qua SRM (blocking, có
-           timeout). KHÔNG được giữ mutex trong lúc chờ phản hồi - owner task (Sdcard_Task)
-           cần tự lấy mutex để ghi vào buffer khi xử lý yêu cầu này, giữ mutex ở đây trong
-           lúc chờ sẽ gây deadlock giữa 2 task */
-        ESP_LOGW(TAG, "Frame %lu not in any buffer, requesting urgent load", index);
-
-        uint32_t lu32Payload = index;
-        bool lbSent = Srm_SendCommand(gxOwnerCommandQueue, SDCARD_CMD_LOAD_MISSING_FRAME,
-                                       &lu32Payload, pdMS_TO_TICKS(DOUBLE_BUFFER_SRM_TIMEOUT_MS));
-        if ((lbSent == false) || (lu32Payload == 0U))
+        if ((gbUsingA == false) && (gbReadyB == true) &&
+            (index >= gu32StartB) && (index < gu32StartB + gu32CountB))
         {
-            ESP_LOGE(TAG, "Owner task failed to load frame %lu in time", index);
+            memcpy(gpOutputFrame, gau8BufferB[index - gu32StartB], FRAME_SIZE);
+
+            if ((gbReadyA == false) && ((index - gu32StartB) > (gu32CountB * 8U / 10U)))
+            {
+                uint32_t lu32LoadIndex = gu32StartB + gu32CountB;
+                if (lu32LoadIndex < gu32TotalFrames)
+                {
+                    gbReadyA = DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, lu32LoadIndex);
+                    ESP_LOGD(TAG, "Preloaded buffer A at index %lu, ready=%d", lu32LoadIndex, (int)gbReadyA);
+                }
+            }
+
+            return true;
+        }
+
+        /* Không có trong buffer đang dùng -> thử chuyển sang buffer còn lại */
+        if (DoubleBuffer_FlipBuffer(index) == true)
+        {
+            continue;
+        }
+
+        /* Không có buffer nào chứa frame cần -> nạp gấp ngay vào buffer hiện KHÔNG phục vụ
+           đọc (buffer đang dùng để nguyên, không ghi đè dữ liệu đang/sắp đọc) */
+        ESP_LOGW(TAG, "Frame %lu not in any buffer, loading urgently", index);
+
+        bool lbLoaded;
+        if (gbUsingA == true)
+        {
+            lbLoaded = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, index);
+            gbReadyB = lbLoaded;
+        }
+        else
+        {
+            lbLoaded = DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, index);
+            gbReadyA = lbLoaded;
+        }
+
+        if (lbLoaded == false)
+        {
+            ESP_LOGE(TAG, "Failed to load frame %lu", index);
             return false;
         }
 
-        /* Owner task báo đã nạp xong -> quay lại đầu vòng lặp, thử tìm frame lần nữa */
+        /* Chuyển thẳng gbUsingA sang buffer vừa nạp - biết chắc nó đang chứa đúng index cần,
+           không dựa vào DoubleBuffer_FlipBuffer() (chỉ xét chiều TIẾN, index >= start+count)
+           vì index yêu cầu có thể NHỎ HƠN start của buffer đang dùng (vd
+           SyncFrame_GetFrameIndex() lùi lại 1-2 frame do sai số nội suy giữa 2 lần đồng bộ) -
+           nếu không chuyển thẳng ở đây, FlipBuffer() sẽ không bao giờ nhận ra buffer vừa nạp,
+           khiến vòng lặp nạp gấp lặp lại mãi vào cùng 1 buffer mà không bao giờ đọc được
+           (treo vĩnh viễn - Sdcard_Task chạy trên chính thread này, treo ở đây nghĩa là
+           không còn ai xử lý xSdCommandQueue/xMp3RingBuffer nữa) */
+        gbUsingA = !gbUsingA;
+
+        /* Nạp xong -> quay lại đầu vòng lặp, chắc chắn tìm thấy ngay ở nhánh tương ứng */
     }
-}
-
-/**
- * @brief DoubleBuffer_Preload
- * Nạp trước buffer hiện không phục vụ đọc, chỉ gọi bởi owner task khi nhận
- * SDCARD_CMD_PRELOAD_BUFFER (xem double_buffer.h)
- * @param
- * @return true nếu nạp thành công, false nếu không có gì cần nạp hoặc nạp thất bại
- */
-bool DoubleBuffer_Preload(void)
-{
-    if (gpFrameFile == NULL)
-    {
-        return false;
-    }
-
-    xSemaphoreTake(gxMutexDoubleBuffer, portMAX_DELAY);
-
-    bool lbNeedLoadA = false;
-    bool lbNeedLoadB = false;
-    uint32_t lu32LoadIndex = 0;
-
-    if (gbUsingA == true)
-    {
-        /* Buffer A đang dùng, cần nạp trước buffer B */
-        if ((gbReadyB == false) && (gbPreloadRequestedForB == true))
-        {
-            lbNeedLoadB = true;
-            lu32LoadIndex = gu32StartA + gu32CountA;
-            if (lu32LoadIndex >= gu32TotalFrames)
-            {
-                /* Hết file, không còn gì để nạp thêm */
-                gbPreloadRequestedForB = false;
-                lbNeedLoadB = false;
-            }
-        }
-    }
-    else
-    {
-        /* Buffer B đang dùng, cần nạp trước buffer A */
-        if ((gbReadyA == false) && (gbPreloadRequestedForA == true))
-        {
-            lbNeedLoadA = true;
-            lu32LoadIndex = gu32StartB + gu32CountB;
-            if (lu32LoadIndex >= gu32TotalFrames)
-            {
-                gbPreloadRequestedForA = false;
-                lbNeedLoadA = false;
-            }
-        }
-    }
-
-    bool lbResult = false;
-    if (lbNeedLoadA == true)
-    {
-        lbResult = DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, lu32LoadIndex);
-        if (lbResult == true)
-        {
-            gbReadyA = true;
-            gbPreloadRequestedForA = false;
-            ESP_LOGI(TAG, "Preloaded buffer A at index %lu, count=%lu", lu32LoadIndex, gu32CountA);
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Failed to preload buffer A at index %lu", lu32LoadIndex);
-        }
-    }
-    else if (lbNeedLoadB == true)
-    {
-        lbResult = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, lu32LoadIndex);
-        if (lbResult == true)
-        {
-            gbReadyB = true;
-            gbPreloadRequestedForB = false;
-            ESP_LOGI(TAG, "Preloaded buffer B at index %lu, count=%lu", lu32LoadIndex, gu32CountB);
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Failed to preload buffer B at index %lu", lu32LoadIndex);
-        }
-    }
-
-    xSemaphoreGive(gxMutexDoubleBuffer);
-    return lbResult;
-}
-
-/**
- * @brief DoubleBuffer_LoadFrame
- * Nạp gấp đúng frame theo chỉ số yêu cầu vào buffer hiện không phục vụ đọc, chỉ gọi bởi
- * owner task khi nhận SDCARD_CMD_LOAD_MISSING_FRAME (xem double_buffer.h)
- * @param index: chỉ số frame cần nạp gấp
- * @return true nếu nạp thành công, false nếu thất bại
- */
-bool DoubleBuffer_LoadFrame(uint32_t index)
-{
-    if (gpFrameFile == NULL)
-    {
-        return false;
-    }
-
-    xSemaphoreTake(gxMutexDoubleBuffer, portMAX_DELAY);
-
-    /* Nạp vào buffer hiện KHÔNG phục vụ đọc - buffer đang dùng có thể đang được
-       DoubleBuffer_GetFrame() đọc dở (dù thực tế lúc gọi tới đây thì cả 2 buffer đều đã
-       được xác nhận không chứa frame cần, xem DoubleBuffer_GetFrame), không được ghi đè */
-    bool lbResult;
-    if (gbUsingA == true)
-    {
-        lbResult = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, index);
-        if (lbResult == true)
-        {
-            gbReadyB = true;
-            gbPreloadRequestedForB = false;
-            ESP_LOGI(TAG, "Loaded missing frame %lu into buffer B, count=%lu", index, gu32CountB);
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Failed to load missing frame %lu into buffer B", index);
-        }
-    }
-    else
-    {
-        lbResult = DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, index);
-        if (lbResult == true)
-        {
-            gbReadyA = true;
-            gbPreloadRequestedForA = false;
-            ESP_LOGI(TAG, "Loaded missing frame %lu into buffer A, count=%lu", index, gu32CountA);
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Failed to load missing frame %lu into buffer A", index);
-        }
-    }
-
-    xSemaphoreGive(gxMutexDoubleBuffer);
-    return lbResult;
 }

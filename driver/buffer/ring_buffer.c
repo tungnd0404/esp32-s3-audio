@@ -1,140 +1,106 @@
+/* ===================================================
+ *  INCLUDE FILES
+ * =================================================== */
+
+#include <stdint.h>
 #include "ring_buffer.h"
 #include "esp_log.h"
 
-static const char *TAG = "RB_DRV";
+/* ===================================================
+ *  LOCAL VARIABLES
+ * =================================================== */
 
-/* Init */
-rb_driver_t ring_buffer_init(size_t size)
+static const char *TAG = "RING_BUFFER";
+
+/* ===================================================
+ *  GLOBAL FUNCTION
+ * =================================================== */
+
+RingbufHandle_t RingBuffer_Init(size_t size)
 {
-    rb_driver_t rb = {0};
-
-    rb.handle = xRingbufferCreate(size, RINGBUF_TYPE_BYTEBUF);
-
-    if (rb.handle == NULL) {
-        ESP_LOGE(TAG, "Failed to create ring buffer");
+    RingbufHandle_t xRingBuf = xRingbufferCreate(size, RINGBUF_TYPE_BYTEBUF);
+    if (xRingBuf == NULL)
+    {
+        ESP_LOGE(TAG, "Failed to create ring buffer (size=%u)", (unsigned int)size);
     }
 
-    return rb;
+    return xRingBuf;
 }
 
-/* Write from task */
-BaseType_t ring_buffer_write(rb_driver_t *rb, const void *data, size_t len, TickType_t timeout)
+BaseType_t RingBuffer_Write(RingbufHandle_t xRingBuf, const void *pData, size_t size, TickType_t timeoutTicks)
 {
-    if (!rb || !rb->handle) return pdFAIL;
-
-    return xRingbufferSend(rb->handle, data, len, timeout);
-}
-
-/* Write from ISR */
-BaseType_t ring_buffer_write_isr(rb_driver_t *rb, const void *data, size_t len)
-{
-    if (!rb || !rb->handle) return pdFAIL;
-
-    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-
-    BaseType_t ret = xRingbufferSendFromISR(
-        rb->handle,
-        data,
-        len,
-        &xHigherPriorityTaskWoken
-    );
-
-    return ret;
-}
-
-/* Read */
-size_t ring_buffer_read(rb_driver_t *rb, void **buf, TickType_t timeout)
-{
-    if (!rb || !rb->handle) return 0;
-
-    size_t item_size = 0;
-
-    *buf = xRingbufferReceive(rb->handle, &item_size, timeout);
-
-    return item_size;
-}
-
-/* Return buffer after processing */
-void ring_buffer_return(rb_driver_t *rb, void *buf)
-{
-    if (!rb || !rb->handle || !buf) return;
-
-    vRingbufferReturnItem(rb->handle, buf);
-}
-
-/* Reset buffer */
-void ring_buffer_reset(rb_driver_t *rb)
-{
-    if (!rb || !rb->handle) return;
-
-    xRingbufferReset(rb->handle);
-}
-
-/* Delete */
-void ring_buffer_deinit(rb_driver_t *rb)
-{
-    if (!rb || !rb->handle) return;
-
-    vRingbufferDelete(rb->handle);
-    rb->handle = NULL;
-}
-
-bool ring_buffer_open(const char *path)
-{
-    memset(&mp3_rb, 0, sizeof(mp3_rb));
-
-    FRESULT res = f_open(&mp3_rb.file, path, FA_READ);
-    if (res != FR_OK) {
-        return false;
+    if (xRingBuf == NULL)
+    {
+        return pdFAIL;
     }
 
-    uint32_t total_read = 0;
-
-    while (total_read < RING_BUFFER_SIZE) {
-
-        UINT br = 0;
-        uint8_t temp[MP3_SIZE];
-
-        uint32_t to_read = MP3_SIZE;
-
-        if (RING_BUFFER_SIZE - total_read < MP3_SIZE) {
-            to_read = RING_BUFFER_SIZE - total_read;
-        }
-
-        res = f_read(&mp3_rb.file, temp, to_read, &br);
-        if (res != FR_OK || br == 0) {
-            mp3_rb.file_end = true;
-            break;
-        }
-
-        ring_write(temp, br);
-        total_read += br;
-    }
-
-    return true;
+    return xRingbufferSend(xRingBuf, pData, size, timeoutTicks);
 }
 
-void sd_task_load_ring_buffer(void)
+size_t RingBuffer_Read(RingbufHandle_t xRingBuf, void **ppOutData, size_t wantedSize, TickType_t timeoutTicks)
 {
-    if (mp3_rb.file_end) {
+    if ((xRingBuf == NULL) || (ppOutData == NULL))
+    {
+        return 0;
+    }
+
+    size_t lItemSize = 0;
+
+    /* xRingbufferReceiveUpTo (không phải xRingbufferReceive) - giới hạn đúng wantedSize byte
+       mỗi lần, xem giải thích trong ring_buffer.h */
+    *ppOutData = xRingbufferReceiveUpTo(xRingBuf, &lItemSize, timeoutTicks, wantedSize);
+    if (*ppOutData == NULL)
+    {
+        return 0;
+    }
+
+    return lItemSize;
+}
+
+void RingBuffer_ReturnItem(RingbufHandle_t xRingBuf, void *pItem)
+{
+    if ((xRingBuf == NULL) || (pItem == NULL))
+    {
         return;
     }
 
-    // nếu còn đủ chỗ cho 1 chunk mới
-    if ((RING_BUFFER_SIZE - mp3_rb.data_size) < MP3_SIZE) {
+    vRingbufferReturnItem(xRingBuf, pItem);
+}
+
+size_t RingBuffer_GetFreeSize(RingbufHandle_t xRingBuf)
+{
+    if (xRingBuf == NULL)
+    {
+        return 0;
+    }
+
+    return xRingbufferGetCurFreeSize(xRingBuf);
+}
+
+void RingBuffer_Reset(RingbufHandle_t xRingBuf)
+{
+    if (xRingBuf == NULL)
+    {
         return;
     }
 
-    uint8_t temp[MP3_SIZE];
+    void *pItem;
+    size_t lItemSize;
 
-    UINT br = 0;
+    /* Rút cạn thủ công: nhận rồi trả lại ngay từng item cho tới khi ring buffer báo rỗng
+       (timeoutTicks = 0, không chờ) */
+    while ((pItem = xRingbufferReceiveUpTo(xRingBuf, &lItemSize, 0, SIZE_MAX)) != NULL)
+    {
+        vRingbufferReturnItem(xRingBuf, pItem);
+    }
+}
 
-    FRESULT res = f_read(&mp3_rb.file, temp, MP3_SIZE, &br);
-
-    if (res != FR_OK || br == 0) {
-        mp3_rb.file_end = true;
+void RingBuffer_Deinit(RingbufHandle_t xRingBuf)
+{
+    if (xRingBuf == NULL)
+    {
         return;
     }
 
-    ring_write(temp, br);
+    vRingbufferDelete(xRingBuf);
 }

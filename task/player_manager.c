@@ -129,6 +129,7 @@ void PlayerManager_Task(void *arg)
     /* Lưu lại trạng thái phát nhạc trước khi double click về MENU để auto-return khôi phục đúng trạng thái */
     static PlayerManager_PlaybackStateType_e lePrevPlaybackState = PLAYBACK_STATE_PLAY;
 
+    /* Vòng lặp chính của task, chạy vô hạn cho tới khi thiết bị tắt nguồn */
     while (1)
     {
         /* Nếu đang chờ auto-return thì chỉ chờ tối đa MENU_AUTO_RETURN_TIME, ngược lại chờ vô thời hạn như bình thường */
@@ -347,9 +348,14 @@ void PlayerManager_Task(void *arg)
                Không dùng gsPlayerContext.buttonState ở đây vì nó đang là BTN_STATE_IDLE (đã bị
                reset từ lần xử lý trước) -> tự suy ra BTN_STATE_PLAY/PAUSE tương ứng playbackState
                vừa khôi phục để Oled_Task rơi đúng vào nhóm "play/pause" thay vì nhóm "vẽ menu" */
-            xTaskNotify(xOledTaskHandle,
-                        (lePrevPlaybackState == PLAYBACK_STATE_PLAY) ? BTN_STATE_PLAY : BTN_STATE_PAUSE,
-                        eSetValueWithOverwrite);
+            if (lePrevPlaybackState == PLAYBACK_STATE_PLAY)
+            {
+                xTaskNotify(xOledTaskHandle, BTN_STATE_PLAY, eSetValueWithOverwrite);
+            }
+            else
+            {
+                xTaskNotify(xOledTaskHandle, BTN_STATE_PAUSE, eSetValueWithOverwrite);
+            }
         }
     }
 }

@@ -2,11 +2,10 @@
  *  INCLUDE FILES
  * =================================================== */
 
-#include <stdio.h>
 #include <string.h>
 #include "mp3.h"
 #include "vs1053.h"
-#include "sdcard.h"
+#include "ring_buffer.h"
 #include "player_manager.h"
 
 /* ===================================================
@@ -15,6 +14,12 @@
 
 /* Số request tối đa có thể chờ xử lý trong xMp3CommandQueue cùng lúc */
 #define MP3_COMMAND_QUEUE_LENGTH   4U
+
+/* Thời gian tối đa chờ RingBuffer_Read() mỗi vòng lặp trong Mp3_StreamCurrentSong() khi
+   xMp3RingBuffer đang tạm rỗng. Không dùng portMAX_DELAY - Sdcard_Task nạp lại theo chu kỳ
+   ~50ms (SDCARD_LOAD_WAIT_MS trong sdcard.c), chờ dài hơn 1 chu kỳ đó là đủ mà không giữ
+   task quá lâu, còn kịp check non-blocking notification + xMp3CommandQueue ở vòng sau */
+#define MP3_RING_BUFFER_READ_WAIT_MS   50U
 
 /* ===================================================
  *  GLOBAL VARIABLES
@@ -26,60 +31,25 @@ TaskHandle_t xMp3TaskHandle = NULL;
 /* Hàng đợi lệnh dùng chung tới Mp3_Task, tạo trong Mp3_Init() vì Mp3_Task là owner */
 QueueHandle_t xMp3CommandQueue = NULL;
 
+/* Ring buffer dữ liệu mp3 thô, tạo trong Mp3_Init(). Sdcard_Task ghi, Mp3_Task đọc - xem
+   giải thích đầy đủ ở khai báo extern trong mp3.h */
+RingbufHandle_t xMp3RingBuffer = NULL;
+
+/* true = Sdcard_Task đã đọc hết bài hiện tại, không còn gì để nạp thêm vào xMp3RingBuffer -
+   xem giải thích đầy đủ ở khai báo extern trong mp3.h. Mặc định true (chưa có bài nào mở) */
+volatile bool gbMp3StreamEof = true;
+
 /* ===================================================
  *  LOCAL TYPE DEFINITIONS
  * =================================================== */
-
-/* Trạng thái phát nhạc riêng của Mp3_Task, suy ra từ PlayerManager_ButtonStateType_e nhận
-   được qua notification. Cùng kiểu thiết kế với Oled_DisplayStateType_e (oled.c) và
-   Sdcard_LoadStateType_e (sdcard.c): chỉ dùng nội bộ file này để switch cho tường minh,
-   không phải kiểu dữ liệu đi qua kênh notification. */
-typedef enum {
-    MP3_STATE_SONG_CHANGED,  /* Đổi bài -> đóng file cũ, mở file mới, bắt đầu stream lại từ đầu */
-    MP3_STATE_PLAY_PAUSE,    /* Play/Pause đổi trạng thái, không đổi bài -> tiếp tục/tạm dừng stream */
-    MP3_STATE_NONE           /* Sự kiện không liên quan (di chuyển cursor, peek MENU...) -> bỏ qua */
-} Mp3_PlaybackStateType_e;
 
 /* ===================================================
  *  LOCAL VARIABLES
  * =================================================== */
 
-/* File mp3 của bài đang phát, giữ nguyên (không đóng) qua các lần Pause/Resume để lần
-   Resume tiếp tục đúng vị trí đang dừng, thay vì phát lại từ đầu. Chỉ đóng và mở lại khi
-   THỰC SỰ đổi bài (xem Mp3_StreamCurrentSong). NULL khi chưa có bài nào đang mở. */
-static FILE *gpMp3File = NULL;
-
 /* ===================================================
  *  LOCAL FUNCTION
  * =================================================== */
-
-/**
- * @brief Mp3_GetPlaybackState
- * Suy ra Mp3_PlaybackStateType_e tương ứng từ buttonState nhận được qua notification.
- * @param buttonState: giá trị PlayerManager_ButtonStateType_e nhận từ PlayerManager_Task
- * @return Mp3_PlaybackStateType_e tương ứng
- */
-static Mp3_PlaybackStateType_e Mp3_GetPlaybackState(PlayerManager_ButtonStateType_e buttonState)
-{
-    switch (buttonState)
-    {
-        case BTN_STATE_NEXT:
-        case BTN_STATE_PREV:
-        case BTN_STATE_PLAY_NEW:
-            return MP3_STATE_SONG_CHANGED;
-
-        case BTN_STATE_PLAY:
-        case BTN_STATE_PAUSE:
-            return MP3_STATE_PLAY_PAUSE;
-
-        case BTN_STATE_UP:
-        case BTN_STATE_DOWN:
-        case BTN_STATE_BACK_MENU:
-        case BTN_STATE_IDLE:
-        default:
-            return MP3_STATE_NONE;
-    }
-}
 
 /**
  * @brief Mp3_HandleCommand
@@ -134,58 +104,35 @@ static void Mp3_ServicePendingCommand(vs1053_handle_t *pDev)
 
 /**
  * @brief Mp3_StreamCurrentSong
- * Stream file mp3 của bài hát ĐANG THỰC SỰ PHÁT (gsPlayerContext.currentSong) ra VS1053,
- * từng khối VS1053_CHUNK_SIZE byte một, cho tới khi Pause/đổi bài/hết file. Cùng khuôn
- * mẫu với Oled_PlayAnimation() (oled.c) và Sdcard_LoadCurrentSong() (sdcard.c): mỗi vòng
- * lặp đều check non-blocking notification để không trễ khi cần xử lý sự kiện khác, kết
- * quả trả về qua tham số ra để vòng lặp ngoài không bị mất giá trị notification vừa nhận.
+ * Rút dữ liệu mp3 thô từ xMp3RingBuffer, gửi cho VS1053 từng khối tối đa VS1053_CHUNK_SIZE
+ * byte một, cho tới khi Pause/đổi bài/hết bài. KHÔNG tự đọc thẻ SD (Mp3_Task không còn là
+ * nơi mở/đọc file mp3 - vi phạm kiến trúc Owner Task vì Sdcard_Task mới là owner duy nhất
+ * của thẻ SD, xem srm.h) - Sdcard_Task tự mở file mp3 và nạp liên tục vào xMp3RingBuffer
+ * ngay khi nhận CÙNG notification đổi bài (xem Sdcard_LoadCurrentSong trong sdcard.c), Mp3_Task
+ * ở đây chỉ việc rút ra và phát. Cùng khuôn mẫu với Oled_PlayAnimation() (oled.c) và
+ * Sdcard_LoadCurrentSong() (sdcard.c): mỗi vòng lặp đều check non-blocking notification để
+ * không trễ khi cần xử lý sự kiện khác, kết quả trả về qua tham số ra để vòng lặp ngoài
+ * không bị mất giá trị notification vừa nhận.
  *
  * @param pDev: con trỏ device VS1053 (đã Mp3_Task khởi tạo)
- * @param bIsNewSong: true nếu đây là bài MỚI (Next/Prev/chọn bài từ MENU) -> đóng file cũ
- *        (nếu có) và mở lại file mới, phát từ đầu. false nếu chỉ là Resume sau Pause ->
- *        giữ nguyên gpMp3File đang mở, tiếp tục đọc từ đúng vị trí đang dừng.
+ * @param bIsNewSong: true nếu đây là bài MỚI (Next/Prev/chọn bài từ MENU) -> reset trạng
+ *        thái decode nội bộ của VS1053 cho bài mới (vs1053_start_song). false nếu chỉ là
+ *        Resume sau Pause -> không reset, tiếp tục đúng vị trí đang dừng.
  * @param pu32NotifyValue: [out] giá trị notification mới nhận được, chỉ có ý nghĩa khi
  *        hàm trả về true
- * @return true nếu thoát do có notification mới cần xử lý tiếp, false nếu thoát do lỗi
- *         đọc thông tin bài hát/mở file thất bại, hoặc đã phát hết file (EOF)
+ * @return true nếu thoát do có notification mới cần xử lý tiếp, false nếu thoát do
+ *         xMp3RingBuffer chưa được khởi tạo, hoặc đã phát hết bài (EOF)
  */
 static bool Mp3_StreamCurrentSong(vs1053_handle_t *pDev, bool bIsNewSong, uint32_t *pu32NotifyValue)
 {
-    uint8_t lau8Chunk[VS1053_CHUNK_SIZE];
-    size_t lChunkLen;
-
     if (bIsNewSong == true)
     {
-        Sdcard_SongDbType_s lSong;
-
-        /* Đổi bài thật -> đóng file của bài cũ trước khi mở file mới */
-        if (gpMp3File != NULL)
-        {
-            fclose(gpMp3File);
-            gpMp3File = NULL;
-        }
-
-        /* Không dùng gsPlayerContext.cursor - vì cursor có thể đã di chuyển sang bài khác
-           nếu người dùng đang duyệt MENU trong lúc nhạc vẫn phát nền (tính năng auto-return) */
-        if (Sdcard_GetSongByIndex((uint16_t)gsPlayerContext.currentSong, &lSong) == false)
-        {
-            return false;
-        }
-
-        gpMp3File = fopen(lSong.songPath, "rb");
-        if (gpMp3File == NULL)
-        {
-            return false;
-        }
-
         /* Reset trạng thái stream nội bộ của VS1053 cho bài mới (end_fill_byte...) */
         vs1053_start_song(pDev);
     }
 
-    /* Phòng thủ: nhận MP3_STATE_PLAY_PAUSE (bIsNewSong=false) khi chưa từng mở bài nào -
-       về lý thuyết không xảy ra vì PlayerManager_Task luôn gửi SONG_CHANGED trước, nhưng
-       nếu thiếu gpMp3File thì không có gì để đọc, tránh gọi fread() trên con trỏ NULL */
-    if (gpMp3File == NULL)
+    /* Phòng thủ: module chưa init (Mp3_Init() chưa từng gọi) -> không có gì để đọc */
+    if (xMp3RingBuffer == NULL)
     {
         return false;
     }
@@ -195,8 +142,7 @@ static bool Mp3_StreamCurrentSong(vs1053_handle_t *pDev, bool bIsNewSong, uint32
        khoảnh khắc xử lý 1 lần bấm nút rồi tự về IDLE) - giống hệt Oled_PlayAnimation() */
     while ((gsPlayerContext.mainState == MAIN_STATE_PLAYING) && (gsPlayerContext.playbackState != PLAYBACK_STATE_PAUSE))
     {
-        /* Check non-blocking (timeout = 0): có notification mới thì thoát ngay, không chờ.
-           File KHÔNG bị đóng ở đây (kể cả khi lý do thoát là Pause) - xem comment gpMp3File */
+        /* Check non-blocking (timeout = 0): có notification mới thì thoát ngay, không chờ */
         if (xTaskNotifyWait(0, UINT32_MAX, pu32NotifyValue, 0) == pdTRUE)
         {
             return true;
@@ -206,21 +152,31 @@ static bool Mp3_StreamCurrentSong(vs1053_handle_t *pDev, bool bIsNewSong, uint32
            lúc đang chạy vòng lặp này, xem Mp3_ServicePendingCommand() */
         Mp3_ServicePendingCommand(pDev);
 
-        /* Đọc 1 khối dữ liệu mới rồi gửi cho VS1053. vs1053_send_buffer() tự chờ chân DREQ
-           bên trong (có vTaskDelay, không busy-wait) nên vòng lặp này tự nhường CPU đúng
-           theo tốc độ VS1053 tiêu thụ dữ liệu, không cần vTaskDelay thủ công như Oled_Task */
-        lChunkLen = fread(lau8Chunk, 1, VS1053_CHUNK_SIZE, gpMp3File);
+        /* Rút tối đa VS1053_CHUNK_SIZE byte hiện có trong ring buffer. Nếu ring buffer đang
+           tạm rỗng, RingBuffer_Read() tự chờ tối đa MP3_RING_BUFFER_READ_WAIT_MS - khoảng
+           chờ này chính là "nhịp nghỉ" của vòng lặp (thay cho vTaskDelay thủ công), giống
+           cách vs1053_send_buffer() tự chờ DREQ khi có dữ liệu để gửi */
+        uint8_t *lpChunk = NULL;
+        size_t lChunkLen = RingBuffer_Read(xMp3RingBuffer, (void **)&lpChunk, VS1053_CHUNK_SIZE,
+                                            pdMS_TO_TICKS(MP3_RING_BUFFER_READ_WAIT_MS));
         if (lChunkLen == 0)
         {
-            /* Hết file -> đã phát xong bài này, đóng file và dừng chờ sự kiện kế tiếp
-               (đổi bài / bấm Play lại từ đầu...). KHÔNG tự động chuyển bài kế tiếp. */
-            fclose(gpMp3File);
-            gpMp3File = NULL;
-            vs1053_stop_song(pDev);
-            break;
+            if (gbMp3StreamEof == true)
+            {
+                /* Sdcard_Task đã đọc hết file mp3 VÀ ring buffer cũng đã rút cạn -> hết bài
+                   thật sự, dừng chờ sự kiện kế tiếp (đổi bài / bấm Play lại từ đầu...).
+                   KHÔNG tự động chuyển bài kế tiếp. */
+                vs1053_stop_song(pDev);
+                break;
+            }
+
+            /* Ring buffer tạm thời rỗng, Sdcard_Task chưa kịp nạp thêm -> thử lại vòng sau,
+               không phải hết bài */
+            continue;
         }
 
-        vs1053_send_buffer(pDev, lau8Chunk, lChunkLen);
+        vs1053_send_buffer(pDev, lpChunk, lChunkLen);
+        RingBuffer_ReturnItem(xMp3RingBuffer, lpChunk);
     }
 
     return false;
@@ -232,14 +188,17 @@ static bool Mp3_StreamCurrentSong(vs1053_handle_t *pDev, bool bIsNewSong, uint32
 
 /**
  * @brief Mp3_Init
- * Khởi tạo module Mp3: tạo xMp3CommandQueue để các module khác gửi lệnh vào.
- * Gọi trước khi tạo Mp3_Task.
+ * Khởi tạo module Mp3: tạo xMp3CommandQueue để các module khác gửi lệnh vào, và
+ * xMp3RingBuffer để Sdcard_Task nạp dữ liệu mp3 thô vào cho Mp3_Task rút ra phát (xem
+ * mp3.h). Gọi trước khi tạo Mp3_Task VÀ trước Sdcard_Init()/Sdcard_Task (Sdcard_Task cần
+ * xMp3RingBuffer đã tồn tại ngay từ lần đổi bài đầu tiên - xem thứ tự gọi trong audio.c).
  * @param
  * @return
  */
 void Mp3_Init(void)
 {
     xMp3CommandQueue = xQueueCreate(MP3_COMMAND_QUEUE_LENGTH, sizeof(Srm_Message_s));
+    xMp3RingBuffer = RingBuffer_Init(MP3_RING_BUFFER_SIZE);
 }
 
 /**
@@ -254,8 +213,7 @@ void Mp3_Init(void)
  *   phản ứng ngay lập tức khi có sự kiện.
  * - Giá trị notification nhận được chính là gsPlayerContext.buttonState (kiểu
  *   PlayerManager_ButtonStateType_e) tại thời điểm PlayerManager_Task gửi đi.
- * - Giá trị đó được map qua Mp3_GetPlaybackState() sang Mp3_PlaybackStateType_e (state
- *   riêng của Mp3_Task, chỉ dùng nội bộ file này) để switch bên dưới đọc tường minh.
+ * - Switch bên dưới xử lý trực tiếp trên buttonState, không qua enum trung gian.
  *
  * Mp3_Task còn có kênh input thứ 2 mà Oled_Task/Sdcard_Task không có: xMp3CommandQueue
  * (request/response theo kiến trúc Owner Task, xem srm.h) - các module khác (vd
@@ -266,21 +224,22 @@ void Mp3_Init(void)
  * đã biết, chấp nhận được vì Srm_SendCommand() phía bên gửi luôn có timeout + giá trị cũ
  * để dùng tạm, không bị treo.
  *
- * 3 nhánh xử lý theo Mp3_PlaybackStateType_e:
- * - MP3_STATE_SONG_CHANGED: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
- *   -> Mp3_StreamCurrentSong(..., bIsNewSong=true, ...) đóng file cũ, mở file mới, phát
- *   lại từ đầu.
- * - MP3_STATE_PLAY_PAUSE: bấm Play/Pause, bài không đổi -> Mp3_StreamCurrentSong(...,
- *   bIsNewSong=false, ...), KHÔNG mở lại file -> nếu playbackState đang là PLAY thì tiếp
- *   tục đọc file từ đúng vị trí đang dừng (nhờ gpMp3File không bị đóng lúc Pause), nếu
- *   đang là PAUSE thì vòng lặp bên trong thoát ngay lập tức (không đọc/gửi gì).
- * - MP3_STATE_NONE: sự kiện không liên quan (di chuyển cursor MENU, peek MENU...) -> bỏ qua.
+ * 3 nhánh xử lý theo buttonState:
+ * - BTN_STATE_NEXT/PREV/PLAY_NEW: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
+ *   -> Mp3_StreamCurrentSong(..., bIsNewSong=true, ...) reset VS1053 cho bài mới. Sdcard_Task
+ *   nhận CÙNG notification này để tự mở file mp3 mới và nạp lại xMp3RingBuffer từ đầu (xem
+ *   Sdcard_LoadCurrentSong trong sdcard.c) - Mp3_Task không tự đụng tới thẻ SD nữa.
+ * - BTN_STATE_PLAY/PAUSE: bấm Play/Pause, bài không đổi -> Mp3_StreamCurrentSong(...,
+ *   bIsNewSong=false, ...), không reset VS1053 -> nếu playbackState đang là PLAY thì tiếp
+ *   tục rút dữ liệu từ xMp3RingBuffer đúng vị trí đang dừng, nếu đang là PAUSE thì vòng lặp
+ *   bên trong thoát ngay lập tức (không đọc/gửi gì).
+ * - Các buttonState còn lại (di chuyển cursor MENU, peek MENU...) -> bỏ qua.
  *
  * Cơ chế lbHasPendingNotify: Mp3_StreamCurrentSong() có thể thoát sớm vì vừa nhận 1
  * notification mới (thay vì thoát vì Pause/hết file) và đã đọc giá trị đó vào
- * lu32NotifyValue. Nếu vòng lặp ngoài gọi xTaskNotifyWait() lần nữa ngay lúc đó thì giá
+ * lu32button_evt. Nếu vòng lặp ngoài gọi xTaskNotifyWait() lần nữa ngay lúc đó thì giá
  * trị vừa nhận sẽ bị mất (thay bằng giá trị chờ tiếp theo). lbHasPendingNotify = true báo
- * cho vòng lặp biết: bỏ qua bước chờ, xử lý ngay lu32NotifyValue đang có sẵn ở vòng lặp
+ * cho vòng lặp biết: bỏ qua bước chờ, xử lý ngay lu32button_evt đang có sẵn ở vòng lặp
  * kế tiếp.
  *
  * @param pvParameters
@@ -293,8 +252,8 @@ void Mp3_Task(void *pvParameters)
     vs1053_handle_t lDevice;
     /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
        (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
-    uint32_t lu32NotifyValue;
-    /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32NotifyValue đã có sẵn
+    uint32_t lu32button_evt;
+    /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32button_evt đã có sẵn
        1 giá trị mới cần xử lý ngay (do Mp3_StreamCurrentSong vừa trả về) */
     bool lbHasPendingNotify = false;
 
@@ -329,24 +288,30 @@ void Mp3_Task(void *pvParameters)
            chờ vô thời hạn (portMAX_DELAY) vì task không có việc gì khác để làm */
         if (lbHasPendingNotify == false)
         {
-            xTaskNotifyWait(0, UINT32_MAX, &lu32NotifyValue, portMAX_DELAY);
+            xTaskNotifyWait(0, UINT32_MAX, &lu32button_evt, portMAX_DELAY);
         }
         /* Dùng xong cờ pending cho vòng lặp này -> reset về false, chỉ set lại true
            bên dưới nếu Mp3_StreamCurrentSong() báo còn notify chưa xử lý */
         lbHasPendingNotify = false;
 
-        /* Map buttonState vừa nhận sang playback state riêng của Mp3_Task rồi rẽ nhánh */
-        switch (Mp3_GetPlaybackState((PlayerManager_ButtonStateType_e)lu32NotifyValue))
+        /* Rẽ nhánh trực tiếp trên buttonState vừa nhận, không qua state trung gian */
+        switch ((PlayerManager_ButtonStateType_e)lu32button_evt)
         {
-            case MP3_STATE_SONG_CHANGED:
-                lbHasPendingNotify = Mp3_StreamCurrentSong(&lDevice, true, &lu32NotifyValue);
+            case BTN_STATE_NEXT:
+            case BTN_STATE_PREV:
+            case BTN_STATE_PLAY_NEW:
+                lbHasPendingNotify = Mp3_StreamCurrentSong(&lDevice, true, &lu32button_evt);
                 break;
 
-            case MP3_STATE_PLAY_PAUSE:
-                lbHasPendingNotify = Mp3_StreamCurrentSong(&lDevice, false, &lu32NotifyValue);
+            case BTN_STATE_PLAY:
+            case BTN_STATE_PAUSE:
+                lbHasPendingNotify = Mp3_StreamCurrentSong(&lDevice, false, &lu32button_evt);
                 break;
 
-            case MP3_STATE_NONE:
+            case BTN_STATE_UP:
+            case BTN_STATE_DOWN:
+            case BTN_STATE_BACK_MENU:
+            case BTN_STATE_IDLE:
             default:
                 /* Sự kiện không liên quan tới phát nhạc -> bỏ qua */
                 break;

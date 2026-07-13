@@ -148,32 +148,32 @@ Ví dụ luồng khi người dùng bấm nút **Next** lúc đang ở màn hìn
 2. `PlayerManager_Task` thức dậy, thấy `mainState == MAIN_STATE_MENU` → gọi `PlayerManager_Update_Cursor()` để tính cursor mới (có xoay vòng), lưu `gsPlayerContext.buttonState = BTN_STATE_DOWN`.
 3. Gửi `xTaskNotify(xOledTaskHandle, BTN_STATE_DOWN, eSetValueWithOverwrite)`. **Không** báo `Sdcard_Task`/`Mp3_Task` (chưa đổi bài đang phát, chỉ di chuyển con trỏ trong menu).
 4. `buttonState` được đưa về `BTN_STATE_IDLE` ngay (giá trị này chỉ tồn tại trong khoảnh khắc xử lý).
-5. `Oled_Task` nhận notification, map qua `Oled_GetDisplayState()` ra `OLED_DISPLAY_MENU` → gọi `Menu_UpdateScroll()` + `Menu_Draw()` vẽ lại danh sách.
+5. `Oled_Task` nhận notification `BTN_STATE_DOWN` → gọi `Menu_UpdateScroll()` + `Menu_Draw()` vẽ lại danh sách.
 
 Khi bấm **Play** lúc đang ở MENU (chọn bài + bắt đầu phát): `PlayerManager_Task` đổi `mainState = MAIN_STATE_PLAYING`, `playbackState = PLAYBACK_STATE_PLAY`, `currentSong = cursor`, rồi báo **cả 3 task** (Oled/Sdcard/Mp3) vì đây là sự kiện đổi bài thật sự — xem bảng đầy đủ trong [Notification Flow](#luồng-notification-notification-flow).
 
 ## Kiến trúc Task (Task Architecture)
 
-`Oled_Task`, `Sdcard_Task`, `Mp3_Task` đều được viết theo **cùng 1 khuôn thuật toán** (chọn `Oled_Task` làm mẫu gốc):
+`Oled_Task`, `Sdcard_Task`, `Mp3_Task` đều được viết theo **cùng 1 khuôn thuật toán** (chọn `Oled_Task` làm mẫu gốc). Cả 3 đều switch trực tiếp trên `PlayerManager_ButtonStateType_e` (`BTN_STATE_*`), không qua enum/hàm map trung gian:
 
 ```
 void Xxx_Task(void *pvParameters)
 {
-    uint32_t lu32NotifyValue;
+    uint32_t lu32button_evt;
     bool lbHasPendingNotify = false;
 
     while (1)
     {
         if (lbHasPendingNotify == false)
         {
-            xTaskNotifyWait(0, UINT32_MAX, &lu32NotifyValue, portMAX_DELAY);  // ngủ chờ sự kiện
+            xTaskNotifyWait(0, UINT32_MAX, &lu32button_evt, portMAX_DELAY);  // ngủ chờ sự kiện
         }
         lbHasPendingNotify = false;
 
-        switch (Xxx_GetXState((PlayerManager_ButtonStateType_e)lu32NotifyValue))  // map sang state nội bộ
+        switch ((PlayerManager_ButtonStateType_e)lu32button_evt)
         {
             case ...:
-                lbHasPendingNotify = Xxx_Worker(..., &lu32NotifyValue);  // vòng lặp "làm việc"
+                lbHasPendingNotify = Xxx_Worker(..., &lu32button_evt);  // vòng lặp "làm việc"
                 break;
             ...
         }
@@ -181,9 +181,8 @@ void Xxx_Task(void *pvParameters)
 }
 ```
 
-- **`Xxx_GetXState()`**: hàm map thuần (`switch`) từ `PlayerManager_ButtonStateType_e` (giá trị notification nhận từ `PlayerManager_Task`) sang 1 enum nội bộ, chỉ tồn tại trong file đó, giúp switch chính đọc theo đúng ngữ nghĩa của module (`Oled_DisplayStateType_e`, `Sdcard_LoadStateType_e`, `Mp3_PlaybackStateType_e`) thay vì phải nhớ ý nghĩa của từng `BTN_STATE_*`.
 - **Hàm worker** (`Oled_PlayAnimation`, `Sdcard_LoadCurrentSong`, `Mp3_StreamCurrentSong`): 1 vòng `while` làm việc thật sự (vẽ animation / nạp buffer / stream mp3), **mỗi vòng lặp đều check non-blocking** (`xTaskNotifyWait(..., timeout=0)`) xem có sự kiện mới cần xử lý gấp không, để không bị trễ phản ứng.
-- **Cơ chế `lbHasPendingNotify`**: nếu worker thoát ra vì vừa nhận 1 notification mới (không phải vì hết việc), giá trị notification đó đã nằm trong `lu32NotifyValue` — nếu vòng lặp ngoài gọi `xTaskNotifyWait()` lần nữa ngay thì giá trị đó sẽ mất (bị ghi đè bởi lần chờ tiếp theo). Cờ này báo cho vòng lặp ngoài: bỏ qua bước chờ, xử lý luôn giá trị đang có.
+- **Cơ chế `lbHasPendingNotify`**: nếu worker thoát ra vì vừa nhận 1 notification mới (không phải vì hết việc), giá trị notification đó đã nằm trong `lu32button_evt` — nếu vòng lặp ngoài gọi `xTaskNotifyWait()` lần nữa ngay thì giá trị đó sẽ mất (bị ghi đè bởi lần chờ tiếp theo). Cờ này báo cho vòng lặp ngoài: bỏ qua bước chờ, xử lý luôn giá trị đang có.
 
 Vì cả 3 task cùng khuôn thuật toán, đọc hiểu 1 task là hiểu được cả 3 — đây là quyết định thiết kế tốt nhất của dự án, xem phần đánh giá cuối tài liệu.
 
@@ -203,7 +202,7 @@ Kiến trúc **SRM (Shared Resource Manager — `driver/srm/`)** hiện thực h
 | Tài nguyên | Owner task | Command queue | cmdId (`srm.h`) |
 |---|---|---|---|
 | VS1053 (phần cứng) | `Mp3_Task` | `xMp3CommandQueue` | `MP3_CMD_GET_DECODE_TIME` |
-| Double buffer animation (RAM, xem [Animation Pipeline](#animation-pipeline)) | `Sdcard_Task` | `xSdCommandQueue` | `SDCARD_CMD_PRELOAD_BUFFER`, `SDCARD_CMD_LOAD_MISSING_FRAME` |
+| Double buffer animation (RAM, xem [Animation Pipeline](#animation-pipeline)) | `Sdcard_Task` | `xSdCommandQueue` | `SDCARD_CMD_GET_FRAME` |
 
 ```
 sync_frame.c                    xMp3CommandQueue                Mp3_Task
@@ -226,7 +225,7 @@ Srm_SendCommand(
 - Vì mỗi task có response queue riêng, nhiều task gửi lệnh gần nhau **không bao giờ nhận nhầm response của nhau**, kể cả khi cùng gửi 1 loại `cmdId`.
 - **Giới hạn quan trọng đã biết (VS1053)**: `Mp3_ServicePendingCommand()` chỉ được gọi bên trong `Mp3_StreamCurrentSong()` — tức chỉ khi `Mp3_Task` đang thực sự stream nhạc. Nếu `Mp3_Task` đang rảnh (chưa phát bài nào) hoặc đang Pause, lệnh gửi tới `xMp3CommandQueue` sẽ không có ai xử lý cho tới khi phát nhạc trở lại. Bên gọi (`Srm_SendCommand`) luôn có timeout + fallback dùng giá trị cũ nên không bị treo, nhưng dữ liệu trả về có thể "cũ" trong khoảng thời gian đó.
 - Không có lệnh set volume/play/pause/seek qua SRM — các hành động này hiện được điều khiển trực tiếp bằng notification tới `Mp3_Task`, không qua SRM.
-- Chỉ có **1 API gửi lệnh** (`Srm_SendCommand()`, luôn blocking + chờ phản hồi) cho mọi cmdId, kể cả `SDCARD_CMD_PRELOAD_BUFFER` (vốn chỉ là gợi ý, không bắt buộc owner phải xử lý ngay) — thay vì thêm 1 API "fire-and-forget" riêng, owner (`Sdcard_Task`) tự trả lời NGAY khi nhận được lệnh này (ack, trước khi thực sự xử lý) nên bên gửi hầu như không bị chặn. Xem chi tiết luồng double buffer trong [Animation Pipeline](#animation-pipeline).
+- Chỉ có **1 API gửi lệnh** (`Srm_SendCommand()`, luôn blocking + chờ phản hồi) cho mọi cmdId. Với `SDCARD_CMD_GET_FRAME`, `Sdcard_Task` chạy thẳng `DoubleBuffer_GetFrame()` trên chính thread của mình (tự nạp trước/nạp gấp bằng lời gọi hàm thường nếu thiếu dữ liệu, không round-trip SRM thêm lần nào nữa) rồi mới trả lời — xem chi tiết luồng double buffer trong [Animation Pipeline](#animation-pipeline).
 
 ## Luồng Notification (Notification Flow)
 
@@ -255,23 +254,33 @@ Giá trị notification gửi đi **chính là** `gsPlayerContext.buttonState` (
 
 ## Audio Pipeline
 
+`Mp3_Task` không còn tự đụng vào thẻ SD (vi phạm kiến trúc Owner Task - `Sdcard_Task` mới là owner duy nhất, xem `srm.h`). Dữ liệu mp3 thô đi qua `xMp3RingBuffer` (`driver/buffer/ring_buffer.c/h`), 1 ring buffer FreeRTOS kiểu byte stream: `Sdcard_Task` là bên ghi duy nhất, `Mp3_Task` là bên đọc duy nhất - không cần mutex vì ring buffer FreeRTOS đã tự an toàn cho đúng 1 task ghi + 1 task đọc đồng thời.
+
 ```
+Sdcard_Task (Sdcard_LoadCurrentSong, khi đổi bài):
 Sdcard_GetSongByIndex(currentSong) → songPath (.mp3)
        │
        ▼
-fopen(songPath) → gpMp3File (giữ mở xuyên suốt Play/Pause)
+fopen(songPath) → gpMp3File (giữ mở xuyên suốt Play/Pause, static trong sdcard.c)
        │
-       ▼ mỗi vòng lặp trong Mp3_StreamCurrentSong()
-fread(VS1053_CHUNK_SIZE = 32 byte) → vs1053_send_buffer()
+       ▼ mỗi vòng lặp trong Sdcard_LoadCurrentSong() (~50ms/lần, xen giữa các lệnh double buffer)
+Sdcard_FillMp3RingBuffer(): còn chỗ trống ≥ SDCARD_MP3_READ_CHUNK_SIZE (512 byte) thì
+fread(SDCARD_MP3_READ_CHUNK_SIZE) → RingBuffer_Write(xMp3RingBuffer)
+       │
+       ▼
+Hết file (fread = 0) → gbMp3StreamEof = true (KHÔNG fclose - chỉ đóng khi đổi bài thật)
+
+Mp3_Task (Mp3_StreamCurrentSong, mỗi vòng lặp):
+RingBuffer_Read(xMp3RingBuffer, VS1053_CHUNK_SIZE = 32 byte) → vs1053_send_buffer()
        │                                    │
        │                                    ▼ (bên trong vs1053_send_buffer)
        │                             vs1053_wait_dreq() — poll chân DREQ bằng
        │                             vTaskDelay(1ms), tự nhường CPU, không busy-wait
        ▼
-Hết file (fread = 0) → fclose + vs1053_stop_song() → dừng, KHÔNG tự next bài
+Ring buffer rỗng VÀ gbMp3StreamEof == true → vs1053_stop_song() → dừng, KHÔNG tự next bài
 ```
 
-- File mp3 hiện tại (`gpMp3File`, static trong `mp3.c`) chỉ đóng khi **thực sự đổi bài** hoặc **hết file** — Pause không đóng file, nên Resume tiếp tục đúng vị trí đang dừng thay vì phát lại từ đầu.
+- File mp3 hiện tại (`gpMp3File`, static trong `sdcard.c`) chỉ đóng khi **thực sự đổi bài** - `Sdcard_FillMp3RingBuffer()` không đóng file khi gặp EOF, chỉ báo qua `gbMp3StreamEof`, nên Resume tiếp tục đúng vị trí đang dừng thay vì phát lại từ đầu (Pause không đụng gì tới `gpMp3File`/ring buffer).
 - Không có auto-next khi hết bài (dừng hẳn, chờ người dùng bấm Next/Play).
 - Không có điều khiển volume/seek nào được wiring vào UI (VS1053 giữ nguyên volume mặc định 50% do `vs1053_init()` đặt, xem `driver/vs1053/vs1053.c:150`).
 
@@ -291,38 +300,34 @@ Mp3_Task đang stream ──► VS1053 thanh ghi SCI_DECODE_TIME (giây, 16-bit,
                      SyncFrame_GetFrameIndex() = virtualTime * FRAME_PER_SECOND (15 fps)
                               │
                               ▼
-                     Oled_PlayAnimation(): DoubleBuffer_GetFrame(frameIndex) → vẽ nếu frame đổi
+                     Oled_PlayAnimation(): Srm_SendCommand(SDCARD_CMD_GET_FRAME, frameIndex) → vẽ nếu thành công
 ```
 
 Animation được đồng bộ theo **thời gian giải mã audio thực tế** (không phải thời gian hệ thống `xTaskGetTickCount`) — nếu VS1053 tạm khựng vì lý do phần cứng, animation tự động khựng theo, tránh trôi hình so với nhạc.
 
-`Oled_PlayAnimation()` chỉ vẽ lại khi `frameIndex` thực sự đổi so với lần vẽ trước (tránh vẽ lại I2C/SPI thừa), dù vòng lặp poll nhanh gấp đôi tốc độ frame thật (`OLED_ANIMATION_DELAY_MS = frame_interval / 2`).
+`Oled_PlayAnimation()` chỉ xin frame mới + vẽ lại khi `frameIndex` thực sự đổi so với lần vẽ trước (tránh vẽ lại I2C/SPI thừa lẫn round-trip SRM không cần thiết), dù vòng lặp poll nhanh gấp đôi tốc độ frame thật (`OLED_ANIMATION_DELAY_MS = frame_interval / 2`).
 
-**Double buffer (`driver/buffer/double_buffer.c`)** — cache 2 buffer (A/B) luân phiên, mỗi buffer giữ `CACHE_FRAMES = 15` frame đọc trước từ `frame.bin`, để `Oled_Task` không phải đọc thẻ SD trực tiếp trên đường vẽ (I/O thẻ SD chậm và không dự đoán được độ trễ). `Sdcard_Task` là **owner** duy nhất được ghi vào 2 buffer này (qua kiến trúc Owner Task/SRM, giống VS1053) — `Oled_Task` chỉ đọc qua `DoubleBuffer_GetFrame()`:
+**Double buffer (`driver/buffer/double_buffer.c`)** — cache 2 buffer (A/B) luân phiên, mỗi buffer giữ `CACHE_FRAMES = 15` frame đọc trước từ `frame.bin`, để `Oled_Task` không phải đọc thẻ SD trực tiếp trên đường vẽ (I/O thẻ SD chậm và không dự đoán được độ trễ). `Sdcard_Task` là **owner tuyệt đối** của 2 buffer này — không chỉ ghi mà cả **đọc cũng do Sdcard_Task thực hiện**: `Oled_Task` không còn tự gọi `DoubleBuffer_GetFrame()` hay đụng vào mảng buffer dưới bất kỳ hình thức nào (kể cả qua mutex), chỉ gửi 1 lệnh SRM mang chỉ số frame cần và chờ phản hồi:
 
 ```
-Oled_Task                    xSdCommandQueue                 Sdcard_Task
-(DoubleBuffer_GetFrame)      (tạo bởi Sdcard_Init)         (owner double buffer)
+Oled_Task                       xSdCommandQueue                    Sdcard_Task
+(Oled_PlayAnimation)            (tạo bởi Sdcard_Init)          (owner double buffer)
 
-Đọc quá 80% buffer     ──► Srm_SendCommand(               ──► Srm_Reply(ack=1) NGAY LẬP TỨC
-đang dùng, chưa gửi         SDCARD_CMD_PRELOAD_BUFFER,          (trước khi nạp - để bên gửi
-hint (block, nhưng           payload=0, timeout 5s)              không phải chờ nạp xong thật)
-trả lời gần như tức      ◄── payload trả về: ack (bỏ qua) ──┐         │
-thì vì owner ack trước                                       │         ▼
-khi thực sự xử lý)                                            │   DoubleBuffer_Preload()
-                                                               │   (nạp buffer còn lại,
-                                                               └── nối ngay sau buffer đang dùng)
-
-Frame cần không có ở    ──► Srm_SendCommand(                 ──► DoubleBuffer_LoadFrame(index)
-buffer nào (miss)            SDCARD_CMD_LOAD_MISSING_FRAME,        (nạp đích danh frame bị
-(block, timeout 5s)          payload = frame index,                thiếu vào buffer không
-                              timeout 5s)                           đang dùng, XONG mới reply)
-       ◄──────────────────── payload trả về: 1 = OK, 0 = lỗi ──────┘
+Frame cần vẽ đổi     ──► Srm_SendCommand(                 ──► DoubleBuffer_GetFrame(index)
+so với lần trước           SDCARD_CMD_GET_FRAME,                 - tìm trong buffer A/B đang dùng
+(block, timeout 5s)        payload = frame index,                - hết thì tự flip/nạp trước/nạp
+                            timeout 5s)                             gấp bằng lời gọi hàm thường
+                                                                     (không round-trip SRM nào
+                                                                     nữa - đã ở đúng thread rồi)
+                                                                   - memcpy thẳng vào gau8Frame
+                                                                     (đăng ký sẵn qua
+                                                                     DoubleBuffer_SetOutputBuffer)
+       ◄──────────────────── payload trả về: 1 = OK, 0 = lỗi ──────┘  rồi mới Srm_Reply()
 ```
 
-Cả 2 loại yêu cầu đều đi qua cùng 1 API `Srm_SendCommand()` (không có API "fire-and-forget" riêng) — điểm khác biệt duy nhất là **thời điểm owner gọi `Srm_Reply()`**: `SDCARD_CMD_PRELOAD_BUFFER` được trả lời ngay khi vừa nhận (trước khi xử lý, payload trả về không mang ý nghĩa) nên bên gửi hầu như không bị chặn dù về bản chất là lời gọi blocking; `SDCARD_CMD_LOAD_MISSING_FRAME` chỉ được trả lời sau khi đã nạp xong thật vì bên gửi cần biết kết quả trước khi đọc tiếp. Nhờ owner luôn trả lời **trước khi** tự lấy `gxMutexDoubleBuffer` để nạp, bên gửi không còn giữ mutex chờ phản hồi tại thời điểm owner cần mutex đó — không có deadlock dù không cần giải phóng mutex thủ công trước khi gửi lệnh preload.
+Nhờ toàn bộ state machine chọn buffer/flip/nạp trước/nạp gấp giờ chạy **trên chính thread của Sdcard_Task**, module không cần mutex bảo vệ dữ liệu như thiết kế cũ (chỉ 1 thread từng đụng vào 2 mảng buffer) và cũng không cần 2 lệnh SRM riêng (`SDCARD_CMD_PRELOAD_BUFFER`/`SDCARD_CMD_LOAD_MISSING_FRAME`) — gộp thành 1 `SDCARD_CMD_GET_FRAME` duy nhất, owner tự quyết định toàn bộ logic bên trong. `DoubleBuffer_SetOutputBuffer()` được `Oled_Init()` gọi đúng 1 lần lúc khởi động (trước khi bất kỳ task nào chạy) để đăng ký `gau8Frame` làm đích ghi, nhờ vậy request SRM chỉ cần mang đúng 1 giá trị (chỉ số frame) mà không phải mở rộng `Srm_Message_s` để mang thêm con trỏ đích mỗi lần gọi.
 
-Trước đây cơ chế preload/miss dùng chung 1 `EventGroupHandle_t` (`EVT_PRELOAD`/`EVT_LOAD_MISS`/`EVT_READY`) không mang được payload, khiến `Sdcard_Task` phải **đoán** frame nào bị thiếu (heuristic "nạp buffer còn lại, bắt đầu từ ngay sau buffer đang dùng"). Sau khi chuyển sang SRM, yêu cầu miss mang thẳng chỉ số frame cần (`payload`), loại bỏ hoàn toàn phần đoán này.
+Trước đây cơ chế preload/miss dùng chung 1 `EventGroupHandle_t` (`EVT_PRELOAD`/`EVT_LOAD_MISS`/`EVT_READY`) không mang được payload, khiến `Sdcard_Task` phải **đoán** frame nào bị thiếu (heuristic "nạp buffer còn lại, bắt đầu từ ngay sau buffer đang dùng"). Sau khi chuyển sang SRM, yêu cầu mang thẳng chỉ số frame cần (`payload`), loại bỏ hoàn toàn phần đoán này.
 
 ## Display Pipeline
 
@@ -381,7 +386,7 @@ Không có framework log tập trung hay cấp độ log cấu hình được th
 
 ## Hạn chế đã biết (Known Limitations)
 
-Toàn bộ bug tìm thấy trong đợt review kỹ thuật (Critical/High/Medium/Low) đã được sửa trực tiếp trong code — bao gồm: busy-loop `while(1);` trong `app_main()` starve Task Watchdog (nay dùng `vTaskDelay(portMAX_DELAY);`), thiếu NULL-check mutex trong `double_buffer_close()`/`double_buffer_total_frames()`, code chết/không biên dịch được `ring_buffer.c/h`/`frame.c/h` (đã xoá khỏi repo), thiếu `volatile` trên `mainState`/`playbackState` (`task/player_manager.h`), SRM registry đầy thất bại âm thầm (nay có `ESP_LOGE`), `malloc`/`free` lặp lại trong `i2c_display_image()` (nay dùng buffer tĩnh), `Sdcard_Mount()` thất bại không có phản hồi cho người dùng (nay hiển thị lỗi lên OLED), và cặp `start`/`count` không nhất quán khi `load_double_buffer_internal()` load lỗi giữa chừng. Chi tiết từng bug xem báo cáo review kỹ thuật riêng đi kèm (mục 17 — Bug Report).
+Toàn bộ bug tìm thấy trong đợt review kỹ thuật (Critical/High/Medium/Low) đã được sửa trực tiếp trong code — bao gồm: busy-loop `while(1);` trong `app_main()` starve Task Watchdog (nay dùng `vTaskDelay(portMAX_DELAY);`), thiếu `volatile` trên `mainState`/`playbackState` (`task/player_manager.h`), SRM registry đầy thất bại âm thầm (nay có `ESP_LOGE`), `malloc`/`free` lặp lại trong `i2c_display_image()` (nay dùng buffer tĩnh), `Sdcard_Mount()` thất bại không có phản hồi cho người dùng (nay hiển thị lỗi lên OLED), và cặp `start`/`count` không nhất quán khi `DoubleBuffer_LoadInternal()` load lỗi giữa chừng. `ring_buffer.c/h` (từng là code chết/không biên dịch được, tham chiếu biến/hàm chưa từng khai báo) đã được viết lại thành driver ring buffer thuần dùng cho luồng mp3 (`xMp3RingBuffer`, xem [Audio Pipeline](#audio-pipeline)) thay vì xoá khỏi repo. `double_buffer.c` cũng được thiết kế lại: bỏ hẳn mutex, chỉ `Sdcard_Task` đụng vào 2 buffer (kể cả đọc, qua `SDCARD_CMD_GET_FRAME`), xem [Animation Pipeline](#animation-pipeline). Chi tiết từng bug xem báo cáo review kỹ thuật riêng đi kèm (mục 17 — Bug Report).
 
 Các hạn chế còn lại (không phải bug, là tính năng/thiết kế còn thiếu, chưa được yêu cầu sửa):
 

@@ -23,12 +23,21 @@
  *  LOCAL VARIABLES
  * =================================================== */
 
-/* Mốc thời gian (ms) của lần đồng bộ decode time gần nhất */
+/* Mốc thời gian (ms) của lần đồng bộ decode time gần nhất (lưới poll cố định, mỗi
+   SYNC_FRAME_TICK_MS 1 lần, bất kể giá trị đọc được có đổi hay không) */
 static uint32_t gu32LastSyncMs = 0;
 /* Giá trị thanh ghi SCI_DECODE_TIME lần đọc gần nhất (16-bit, có thể rollover) */
 static uint16_t gu16DecodePrev = 0;
 /* Tổng số giây đã giải mã, cộng dồn tuyệt đối (không rollover) */
 static uint16_t gu16DecodeTotal = 0;
+/* Mốc thời gian (ms, wall-clock) của lần gu16DecodeTotal THỰC SỰ tăng gần nhất - khác
+   gu32LastSyncMs (mốc lưới poll cố định). SCI_DECODE_TIME chỉ tăng mỗi ~1 giây thật trong
+   khi poll mỗi SYNC_FRAME_TICK_MS=100ms, nên đa số các lần poll KHÔNG có gì thay đổi. Nếu
+   nội suy phần thập phân theo gu32LastSyncMs (mốc poll) thay vì mốc này, phần thập phân của
+   gf32VirtualTime sẽ bị reset về gần 0 ở MỌI lần poll dù giá trị thật chưa đổi, khiến
+   frameIndex nhảy lùi định kỳ ~9 lần/giây - đủ để đôi khi lùi qua ranh giới double buffer
+   (driver/buffer/double_buffer.c) và gây treo (DoubleBuffer_FlipBuffer chỉ xét chiều tiến) */
+static uint32_t gu32DecodeTotalChangedAtMs = 0;
 /* Thời gian phát ảo (giây), nội suy mượt giữa 2 lần đồng bộ */
 static volatile float gf32VirtualTime = 0.0f;
 
@@ -64,7 +73,10 @@ static uint16_t SyncFrame_RequestDecodeTime(void)
 /**
  * @brief SyncFrame_UpdateVirtualTime
  * Cập nhật gf32VirtualTime: đọc lại decode time thật mỗi SYNC_FRAME_TICK_MS (xử lý cả
- * rollover 16-bit của thanh ghi), rồi nội suy mượt phần dư trong khoảng chưa tới mốc kế tiếp
+ * rollover 16-bit của thanh ghi), rồi nội suy mượt phần dư kể từ mốc gu16DecodeTotal THỰC
+ * SỰ tăng gần nhất (gu32DecodeTotalChangedAtMs) - không phải mốc poll gu32LastSyncMs, vì
+ * SCI_DECODE_TIME chỉ tăng mỗi ~1 giây thật trong khi poll mỗi 100ms (xem giải thích ở khai
+ * báo gu32DecodeTotalChangedAtMs)
  * @param
  * @return gf32VirtualTime sau khi cập nhật (giây)
  */
@@ -97,13 +109,28 @@ static float SyncFrame_UpdateVirtualTime(void)
             lu16DeltaRaw = 1U;
         }
 
-        /* Cập nhật giá trị raw lần trước và tổng số giây cộng dồn tuyệt đối */
+        /* Cập nhật giá trị raw lần trước */
         gu16DecodePrev = lu16RawDecodeTime;
-        gu16DecodeTotal += lu16DeltaRaw;
+
+        if (lu16DeltaRaw > 0U)
+        {
+            /* Giá trị THỰC SỰ vừa tăng -> cộng dồn và dời mốc nội suy. Chỉ dời mốc khi có
+               tăng thật - nếu dời ở MỌI lần poll (kể cả không đổi) sẽ gây nhảy lùi frameIndex
+               định kỳ, xem giải thích ở khai báo gu32DecodeTotalChangedAtMs */
+            gu16DecodeTotal += lu16DeltaRaw;
+            gu32DecodeTotalChangedAtMs = gu32LastSyncMs;
+        }
     }
 
-    /* Nội suy thời gian ảo trong khoảng SYNC_FRAME_TICK_MS hiện tại */
-    float lf32DeltaMs = (float)(lu32Now - gu32LastSyncMs) / 1000.0f;
+    /* Nội suy thời gian ảo kể từ mốc gu16DecodeTotal thực sự tăng gần nhất */
+    float lf32DeltaMs = (float)(lu32Now - gu32DecodeTotalChangedAtMs) / 1000.0f;
+    if (lf32DeltaMs > 1.0f)
+    {
+        /* Quá 1 giây thật mà vẫn chưa thấy SCI_DECODE_TIME tăng thêm -> có thể VS1053 đang
+           khựng thật (phần cứng) - chặn lại, không để virtual time chạy vượt quá điều counter
+           thật đã xác nhận, giữ đúng tinh thần "animation tự khựng theo khi audio khựng" */
+        lf32DeltaMs = 1.0f;
+    }
     gf32VirtualTime = (float)gu16DecodeTotal + lf32DeltaMs;
 
     return gf32VirtualTime;
@@ -125,6 +152,7 @@ void SyncFrame_Init(void)
     gu32LastSyncMs = (uint32_t)(esp_timer_get_time() / 1000);
     gu16DecodePrev = SyncFrame_RequestDecodeTime();
     gu16DecodeTotal = gu16DecodePrev;
+    gu32DecodeTotalChangedAtMs = gu32LastSyncMs;
     gf32VirtualTime = (float)gu16DecodePrev;
 }
 

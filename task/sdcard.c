@@ -14,6 +14,8 @@
 #include "config.h"
 #include "player_manager.h"
 #include "double_buffer.h"
+#include "ring_buffer.h"
+#include "mp3.h"
 #include "srm.h"
 
 /* ===================================================
@@ -30,6 +32,12 @@
 
 /* Số request tối đa có thể chờ xử lý trong xSdCommandQueue cùng lúc */
 #define SDCARD_COMMAND_QUEUE_LENGTH 4U
+
+/* Kích thước mỗi lần đọc file mp3 để nạp vào xMp3RingBuffer (byte). Lớn hơn nhiều so với
+   VS1053_CHUNK_SIZE (32 byte - kích thước Mp3_Task gửi cho VS1053 mỗi lần, xem vs1053.h) để
+   giảm số lần gọi fread() trên thẻ SD - việc tách "đọc thẻ SD theo khối lớn" khỏi "gửi cho
+   VS1053 theo khối nhỏ" chính là lý do cần xMp3RingBuffer làm lớp đệm trung gian */
+#define SDCARD_MP3_READ_CHUNK_SIZE  512U
 
 /* ===================================================
  *  GLOBAL VARIABLES
@@ -52,58 +60,26 @@ QueueHandle_t xSdCommandQueue = NULL;
  *  LOCAL TYPE DEFINITIONS
  * =================================================== */
 
-/* Trạng thái nạp dữ liệu riêng của Sdcard_Task, suy ra từ PlayerManager_ButtonStateType_e
-   nhận được qua notification. Cùng kiểu thiết kế với Oled_DisplayStateType_e (oled.c):
-   chỉ dùng nội bộ file này để switch cho tường minh, không phải kiểu dữ liệu đi qua kênh
-   notification (kênh truyền vẫn dùng thẳng PlayerManager_ButtonStateType_e). */
-typedef enum {
-    SDCARD_LOAD_SONG_CHANGED,  /* Đổi bài -> mở lại double buffer, nạp frame cho bài mới */
-    SDCARD_LOAD_NONE           /* Sự kiện không liên quan (di chuyển cursor, play/pause...) -> bỏ qua */
-} Sdcard_LoadStateType_e;
-
 /* ===================================================
  *  LOCAL VARIABLES
  * =================================================== */
 
 static const char *TAG = "SDCARD";
 
+/* File mp3 của bài ĐANG THỰC SỰ PHÁT, chỉ Sdcard_Task được đụng vào (kiến trúc Owner Task -
+   Mp3_Task không còn tự fopen/fread thẳng trên thẻ SD nữa, xem Mp3_StreamCurrentSong trong
+   mp3.c). Đóng và mở lại mỗi khi đổi bài (xem Sdcard_LoadCurrentSong), KHÔNG đóng lúc Pause -
+   giữ nguyên vị trí đọc dở để Resume tiếp tục đúng chỗ. NULL khi chưa có bài nào đang mở. */
+static FILE *gpMp3File = NULL;
+
 /* ===================================================
  *  LOCAL FUNCTION
  * =================================================== */
 
 /**
- * @brief Sdcard_GetLoadState
- * Suy ra Sdcard_LoadStateType_e tương ứng từ buttonState nhận được qua notification.
- * Sdcard_Task chỉ thực sự quan tâm sự kiện ĐỔI BÀI (Next/Prev lúc đang phát, hoặc chọn
- * bài mới từ MENU) - di chuyển cursor trong MENU hay play/pause không làm thay đổi bài
- * đang cần nạp dữ liệu nên được gộp chung vào SDCARD_LOAD_NONE.
- * @param buttonState: giá trị PlayerManager_ButtonStateType_e nhận từ PlayerManager_Task
- * @return Sdcard_LoadStateType_e tương ứng
- */
-static Sdcard_LoadStateType_e Sdcard_GetLoadState(PlayerManager_ButtonStateType_e buttonState)
-{
-    switch (buttonState)
-    {
-        case BTN_STATE_NEXT:
-        case BTN_STATE_PREV:
-        case BTN_STATE_PLAY_NEW:
-            return SDCARD_LOAD_SONG_CHANGED;
-
-        case BTN_STATE_UP:
-        case BTN_STATE_DOWN:
-        case BTN_STATE_BACK_MENU:
-        case BTN_STATE_PLAY:
-        case BTN_STATE_PAUSE:
-        case BTN_STATE_IDLE:
-        default:
-            return SDCARD_LOAD_NONE;
-    }
-}
-
-/**
  * @brief Sdcard_HandleCommand
  * Xử lý 1 request nhận được từ xSdCommandQueue (xem srm.h - kiến trúc Owner Task): dựa vào
- * cmdId gọi đúng hàm DoubleBuffer_* tương ứng (Sdcard_Task là owner duy nhất được phép ghi
+ * cmdId gọi đúng hàm DoubleBuffer_* tương ứng (Sdcard_Task là owner duy nhất được phép đụng
  * vào double buffer animation, xem driver/buffer/double_buffer.c).
  * @param pRequest: request nhận được từ xSdCommandQueue
  * @return
@@ -112,23 +88,13 @@ static void Sdcard_HandleCommand(const Srm_Message_s *pRequest)
 {
     switch ((Srm_CommandType_e)pRequest->cmdId)
     {
-        case SDCARD_CMD_PRELOAD_BUFFER:
-            /* Trả lời NGAY (ack "đã nhận lệnh", không phải "đã nạp xong") rồi mới thực sự
-               nạp - để bên gửi (DoubleBuffer_GetFrame(), đang giữ gxMutexDoubleBuffer lúc
-               gọi Srm_SendCommand cho lệnh này) không phải chờ tới lúc nạp xong thật (có
-               thể mất vài-vài chục ms đọc thẻ SD) mới được trả lời. Nhờ trả lời trước khi
-               gọi DoubleBuffer_Preload(), hàm đó có lấy gxMutexDoubleBuffer trễ hơn cũng
-               không sao - bên gửi lúc này đã nhận được ack và không còn giữ mutex chờ nữa,
-               không có rủi ro deadlock */
-            Srm_Reply(pRequest, 1U);
-            DoubleBuffer_Preload();
-            break;
-
-        case SDCARD_CMD_LOAD_MISSING_FRAME:
+        case SDCARD_CMD_GET_FRAME:
         {
-            /* Lệnh gửi qua Srm_SendCommand() - bên gửi đang chờ, luôn phải trả lời để họ
-               không phải đợi hết timeout mới biết kết quả */
-            bool lbSuccess = DoubleBuffer_LoadFrame(pRequest->payload);
+            /* Chạy thẳng trên thread của Sdcard_Task - DoubleBuffer_GetFrame() tự lo nạp
+               trước/nạp gấp bằng lời gọi hàm thường nếu thiếu dữ liệu, ghi thẳng vào buffer
+               Oled_Task đã đăng ký sẵn (DoubleBuffer_SetOutputBuffer), rồi mới trả lời -
+               Oled_Task nhận được phản hồi là biết chắc dữ liệu đã sẵn sàng trong buffer đó */
+            bool lbSuccess = DoubleBuffer_GetFrame(pRequest->payload);
             Srm_Reply(pRequest, (uint32_t)lbSuccess);
             break;
         }
@@ -142,13 +108,53 @@ static void Sdcard_HandleCommand(const Srm_Message_s *pRequest)
 }
 
 /**
+ * @brief Sdcard_FillMp3RingBuffer
+ * Đọc thêm dữ liệu từ gpMp3File (nếu đang mở và chưa hết file) nạp vào xMp3RingBuffer cho
+ * tới khi KHÔNG còn đủ chỗ trống cho 1 khối SDCARD_MP3_READ_CHUNK_SIZE nữa, hoặc gặp EOF.
+ * Gọi mỗi vòng lặp trong Sdcard_LoadCurrentSong() để xMp3RingBuffer luôn được nạp gần đầy -
+ * khác với frame animation (Oled_Task chủ động xin từng frame qua SDCARD_CMD_GET_FRAME,
+ * xem DoubleBuffer_GetFrame), ring buffer không cần Mp3_Task báo hiệu mới nạp: cứ còn chỗ
+ * trống là nạp tiếp, đơn giản hơn vì đây là luồng dữ liệu tuần tự (không cần truy cập ngẫu
+ * nhiên theo chỉ số như frame animation).
+ * @param
+ * @return
+ */
+static void Sdcard_FillMp3RingBuffer(void)
+{
+    if ((gpMp3File == NULL) || (gbMp3StreamEof == true))
+    {
+        return;
+    }
+
+    uint8_t lau8Chunk[SDCARD_MP3_READ_CHUNK_SIZE];
+
+    /* Kiểm tra chỗ trống TRƯỚC khi đọc file - đảm bảo RingBuffer_Write() bên dưới luôn có
+       đủ chỗ để ghi hết số byte vừa đọc được, không bao giờ phải huỷ dữ liệu đã đọc dở */
+    while (RingBuffer_GetFreeSize(xMp3RingBuffer) >= SDCARD_MP3_READ_CHUNK_SIZE)
+    {
+        size_t lReadBytes = fread(lau8Chunk, 1, SDCARD_MP3_READ_CHUNK_SIZE, gpMp3File);
+        if (lReadBytes == 0)
+        {
+            /* Hết file mp3 - báo cho Mp3_Task biết qua gbMp3StreamEof, không đóng gpMp3File
+               ở đây (chỉ đóng khi thực sự đổi bài, xem Sdcard_LoadCurrentSong) */
+            gbMp3StreamEof = true;
+            break;
+        }
+
+        RingBuffer_Write(xMp3RingBuffer, lau8Chunk, lReadBytes, 0);
+    }
+}
+
+/**
  * @brief Sdcard_LoadCurrentSong
- * Mở double buffer cho bài hát ĐANG THỰC SỰ PHÁT (gsPlayerContext.currentSong) rồi liên
- * tục xử lý các lệnh nạp dữ liệu frame animation gửi tới qua xSdCommandQueue
- * (SDCARD_CMD_PRELOAD_BUFFER/SDCARD_CMD_LOAD_MISSING_FRAME, xem Sdcard_HandleCommand), cho
- * tới khi có bài mới cần chuyển sang. Cùng khuôn mẫu với Oled_PlayAnimation() (oled.c):
- * mỗi vòng lặp đều check non-blocking notification để không trễ khi cần đổi bài, kết quả
- * trả về qua tham số ra để vòng lặp ngoài không bị mất giá trị notification vừa nhận.
+ * Mở double buffer + file mp3 cho bài hát ĐANG THỰC SỰ PHÁT (gsPlayerContext.currentSong)
+ * rồi liên tục: (1) xử lý lệnh SDCARD_CMD_GET_FRAME gửi tới qua xSdCommandQueue mỗi khi
+ * Oled_Task cần 1 frame animation (xem Sdcard_HandleCommand), và
+ * (2) nạp thêm dữ liệu mp3 vào xMp3RingBuffer cho Mp3_Task rút ra phát (xem
+ * Sdcard_FillMp3RingBuffer) - cho tới khi có bài mới cần chuyển sang. Cùng khuôn mẫu với
+ * Oled_PlayAnimation() (oled.c): mỗi vòng lặp đều check non-blocking notification để không
+ * trễ khi cần đổi bài, kết quả trả về qua tham số ra để vòng lặp ngoài không bị mất giá trị
+ * notification vừa nhận.
  * @param pu32NotifyValue: [out] giá trị notification mới nhận được, chỉ có ý nghĩa khi
  *        hàm trả về true
  * @return true nếu thoát do có notification mới cần xử lý tiếp, false nếu thoát do lỗi
@@ -169,6 +175,26 @@ static bool Sdcard_LoadCurrentSong(uint32_t *pu32NotifyValue)
     DoubleBuffer_Close();
     DoubleBuffer_Open(lSong.framePath);
 
+    /* Đóng file mp3 của bài cũ (nếu có), reset ring buffer trước khi mở file mới - tránh
+       Mp3_Task đọc nhầm dữ liệu còn sót của bài trước còn nằm trong xMp3RingBuffer */
+    if (gpMp3File != NULL)
+    {
+        fclose(gpMp3File);
+        gpMp3File = NULL;
+    }
+    RingBuffer_Reset(xMp3RingBuffer);
+    gbMp3StreamEof = false;
+
+    gpMp3File = fopen(lSong.songPath, "rb");
+    if (gpMp3File == NULL)
+    {
+        /* Không mở được file mp3 -> coi như hết dữ liệu ngay, để Mp3_Task không chờ vô ích
+           (vẫn tiếp tục chạy vòng lặp bên dưới bình thường cho phần frame animation) */
+        ESP_LOGE(TAG, "Cannot open mp3 %s", lSong.songPath);
+        gbMp3StreamEof = true;
+    }
+
+    /* Vòng lặp nạp dữ liệu cho bài đang phát, chạy tới khi có notification mới (đổi bài) */
     while (1)
     {
         Srm_Message_s lRequest;
@@ -180,6 +206,11 @@ static bool Sdcard_LoadCurrentSong(uint32_t *pu32NotifyValue)
         {
             Sdcard_HandleCommand(&lRequest);
         }
+
+        /* Tranh thủ nạp thêm dữ liệu mp3 cho Mp3_Task mỗi vòng lặp - không cần chờ yêu cầu
+           gì từ Mp3_Task, cứ còn chỗ trống trong xMp3RingBuffer là nạp tiếp (xem
+           Sdcard_FillMp3RingBuffer) */
+        Sdcard_FillMp3RingBuffer();
 
         /* Check non-blocking (timeout = 0): có notification mới thì thoát ngay, không chờ */
         if (xTaskNotifyWait(0, UINT32_MAX, pu32NotifyValue, 0) == pdTRUE)
@@ -455,9 +486,11 @@ bool Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
 
 /**
  * @brief Sdcard_Task
- * Task nạp dữ liệu frame animation từ thẻ nhớ vào double buffer cho bài đang phát.
- * Cùng khuôn thuật toán với Oled_Task (oled.c) để các task trong hệ thống đọc thống nhất,
- * dễ theo dõi:
+ * Task owner duy nhất của thẻ nhớ SD (kiến trúc Owner Task, xem srm.h). Nạp dữ liệu frame
+ * animation từ thẻ nhớ vào double buffer, VÀ dữ liệu mp3 thô vào xMp3RingBuffer, đều cho
+ * bài đang phát - Oled_Task/Mp3_Task chỉ đọc dữ liệu qua DoubleBuffer_*/xMp3RingBuffer,
+ * không tự đụng vào thẻ SD. Cùng khuôn thuật toán với Oled_Task (oled.c) để các task trong
+ * hệ thống đọc thống nhất, dễ theo dõi:
  *
  * Cơ chế nhận sự kiện:
  * - Không tự poll trạng thái theo chu kỳ, mà "ngủ" (xTaskNotifyWait, portMAX_DELAY) chờ
@@ -466,21 +499,19 @@ bool Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
  * - Giá trị notification nhận được chính là gsPlayerContext.buttonState (kiểu
  *   PlayerManager_ButtonStateType_e) tại thời điểm PlayerManager_Task gửi đi -> không cần
  *   thêm 1 enum sự kiện riêng cho kênh notification giữa 2 task.
- * - Giá trị đó được map qua Sdcard_GetLoadState() sang Sdcard_LoadStateType_e (state riêng
- *   của Sdcard_Task, chỉ dùng nội bộ file này) để switch bên dưới đọc tường minh, thay vì
- *   phải nhớ buttonState nào cần xử lý.
+ * - Switch bên dưới xử lý trực tiếp trên buttonState, không qua enum trung gian.
  *
- * 2 nhánh xử lý theo Sdcard_LoadStateType_e:
- * - SDCARD_LOAD_SONG_CHANGED: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
- *   -> chạy Sdcard_LoadCurrentSong() mở lại double buffer và nạp dữ liệu cho bài mới.
- * - SDCARD_LOAD_NONE: sự kiện không liên quan tới việc đổi bài (di chuyển cursor MENU,
+ * 2 nhánh xử lý theo buttonState:
+ * - BTN_STATE_NEXT/PREV/PLAY_NEW: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
+ *   -> chạy Sdcard_LoadCurrentSong() mở lại double buffer + file mp3, nạp dữ liệu cho bài mới.
+ * - Các buttonState còn lại: sự kiện không liên quan tới việc đổi bài (di chuyển cursor MENU,
  *   play/pause, peek MENU...) -> bỏ qua, không làm gì.
  *
  * Cơ chế lbHasPendingNotify: Sdcard_LoadCurrentSong() có thể thoát sớm vì vừa nhận 1
- * notification mới (thay vì thoát vì lỗi đọc DB) và đã đọc giá trị đó vào lu32NotifyValue.
+ * notification mới (thay vì thoát vì lỗi đọc DB) và đã đọc giá trị đó vào lu32button_evt.
  * Nếu vòng lặp ngoài gọi xTaskNotifyWait() lần nữa ngay lúc đó thì giá trị vừa nhận sẽ bị
  * mất (thay bằng giá trị chờ tiếp theo). lbHasPendingNotify = true báo cho vòng lặp biết:
- * bỏ qua bước chờ, xử lý ngay lu32NotifyValue đang có sẵn ở vòng lặp kế tiếp.
+ * bỏ qua bước chờ, xử lý ngay lu32button_evt đang có sẵn ở vòng lặp kế tiếp.
  *
  * @param pvParameters
  * @return không bao giờ return (vòng lặp vô hạn, đúng chuẩn 1 FreeRTOS task)
@@ -489,15 +520,13 @@ void Sdcard_Task(void *pvParameters)
 {
     /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
        (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
-    uint32_t lu32NotifyValue;
-    /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32NotifyValue đã có sẵn
+    uint32_t lu32button_evt;
+    /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32button_evt đã có sẵn
        1 giá trị mới cần xử lý ngay (do Sdcard_LoadCurrentSong vừa trả về) */
     bool lbHasPendingNotify = false;
 
-    /* Khởi tạo double buffer trước khi dùng tới DoubleBuffer_Open()/DoubleBuffer_Close() -
-       truyền xSdCommandQueue để double_buffer.c biết gửi SDCARD_CMD_* tới đâu (xem
-       DoubleBuffer_Init() trong double_buffer.h) */
-    DoubleBuffer_Init(xSdCommandQueue);
+    /* Khởi tạo double buffer trước khi dùng tới DoubleBuffer_Open()/DoubleBuffer_GetFrame() */
+    DoubleBuffer_Init();
 
     /* Vòng lặp chính của task, chạy vô hạn cho tới khi thiết bị tắt nguồn */
     while (1)
@@ -506,23 +535,32 @@ void Sdcard_Task(void *pvParameters)
            chờ vô thời hạn (portMAX_DELAY) vì task không có việc gì khác để làm */
         if (lbHasPendingNotify == false)
         {
-            xTaskNotifyWait(0, UINT32_MAX, &lu32NotifyValue, portMAX_DELAY);
+            xTaskNotifyWait(0, UINT32_MAX, &lu32button_evt, portMAX_DELAY);
         }
         /* Dùng xong cờ pending cho vòng lặp này -> reset về false, chỉ set lại true
            bên dưới nếu Sdcard_LoadCurrentSong() báo còn notify chưa xử lý */
         lbHasPendingNotify = false;
 
-        /* Map buttonState vừa nhận sang load state riêng của Sdcard_Task rồi rẽ nhánh xử lý */
-        switch (Sdcard_GetLoadState((PlayerManager_ButtonStateType_e)lu32NotifyValue))
+        /* Sdcard_Task chỉ thực sự quan tâm sự kiện ĐỔI BÀI (Next/Prev lúc đang phát, hoặc
+           chọn bài mới từ MENU); các buttonState khác (di chuyển cursor MENU, play/pause...)
+           không làm thay đổi bài đang cần nạp dữ liệu nên bỏ qua */
+        switch ((PlayerManager_ButtonStateType_e)lu32button_evt)
         {
-            case SDCARD_LOAD_SONG_CHANGED:
+            case BTN_STATE_NEXT:
+            case BTN_STATE_PREV:
+            case BTN_STATE_PLAY_NEW:
                 /* Chạy vòng nạp dữ liệu cho bài mới; nếu bị ngắt giữa chừng do có notify
                    khác tới thì lbHasPendingNotify sẽ được set true để xử lý tiếp ở vòng
                    lặp kế, không mất giá trị notification vừa nhận */
-                lbHasPendingNotify = Sdcard_LoadCurrentSong(&lu32NotifyValue);
+                lbHasPendingNotify = Sdcard_LoadCurrentSong(&lu32button_evt);
                 break;
 
-            case SDCARD_LOAD_NONE:
+            case BTN_STATE_UP:
+            case BTN_STATE_DOWN:
+            case BTN_STATE_BACK_MENU:
+            case BTN_STATE_PLAY:
+            case BTN_STATE_PAUSE:
+            case BTN_STATE_IDLE:
             default:
                 /* Sự kiện không liên quan tới đổi bài -> bỏ qua */
                 break;
