@@ -55,8 +55,8 @@ volatile bool gbMp3StreamEof = true;
  * @brief Mp3_HandleCommand
  * Xử lý 1 request nhận được từ xMp3CommandQueue (xem srm.h - kiến trúc Owner Task): dựa
  * vào cmdId gọi đúng API vs1053_* tương ứng, luôn trả lời qua Srm_Reply() dù cmdId có
- * hợp lệ hay không (bên gửi đang chờ, không trả lời thì Srm_SendCommand() của họ sẽ phải
- * đợi hết timeout mới coi là lỗi, gây chậm không cần thiết).
+ * hợp lệ hay không (bên gửi đang chờ trong Srm_Mp3GetDecodeTime(), không trả lời thì họ sẽ
+ * phải đợi hết timeout mới coi là lỗi, gây chậm không cần thiết).
  * @param pDev: con trỏ device VS1053 (đã Mp3_Task khởi tạo)
  * @param pRequest: request nhận được từ xMp3CommandQueue
  * @return
@@ -73,7 +73,7 @@ static void Mp3_HandleCommand(vs1053_handle_t *pDev, const Srm_Message_s *pReque
 
         default:
             /* cmdId lạ (chưa định nghĩa xử lý) -> vẫn trả lời 0 để bên gửi không phải chờ
-               hết timeout, tránh trường hợp SRM_CMD_INVALID lọt qua được Srm_SendCommand */
+               hết timeout, tránh trường hợp SRM_CMD_INVALID lọt qua được lúc gửi */
             Srm_Reply(pRequest, 0U);
             break;
     }
@@ -87,8 +87,8 @@ static void Mp3_HandleCommand(vs1053_handle_t *pDev, const Srm_Message_s *pReque
  * kịp thời trong lúc đang phát nhạc.
  * LƯU Ý: hàm này KHÔNG được gọi khi Mp3_Task đang rảnh/tạm dừng (đang chờ notify ở vòng
  * lặp ngoài Mp3_Task, xTaskNotifyWait dùng portMAX_DELAY) - lúc đó request tới xMp3CommandQueue
- * sẽ không có ai xử lý cho tới khi có bài phát tiếp theo. Bên gửi (Srm_SendCommand) đã có
- * cơ chế timeout + trả về giá trị cũ nên không bị treo, nhưng cần biết giới hạn này.
+ * sẽ không có ai xử lý cho tới khi có bài phát tiếp theo. Bên gửi (Srm_Mp3GetDecodeTime())
+ * đã có cơ chế timeout + trả về giá trị cũ nên không bị treo, nhưng cần biết giới hạn này.
  * @param pDev: con trỏ device VS1053 (đã Mp3_Task khởi tạo)
  * @return
  */
@@ -221,8 +221,8 @@ void Mp3_Init(void)
  * chỉ được xử lý (Mp3_ServicePendingCommand) bên trong Mp3_StreamCurrentSong() - tức CHỈ
  * lúc đang thực sự stream nhạc. Nếu Mp3_Task đang rảnh (chưa phát bài nào) hoặc đang
  * Pause, request sẽ không có ai trả lời cho tới khi phát nhạc trở lại - đây là giới hạn
- * đã biết, chấp nhận được vì Srm_SendCommand() phía bên gửi luôn có timeout + giá trị cũ
- * để dùng tạm, không bị treo.
+ * đã biết, chấp nhận được vì Srm_Mp3GetDecodeTime() phía bên gửi luôn có timeout + giá trị
+ * cũ để dùng tạm, không bị treo.
  *
  * 3 nhánh xử lý theo buttonState:
  * - BTN_STATE_NEXT/PREV/PLAY_NEW: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)

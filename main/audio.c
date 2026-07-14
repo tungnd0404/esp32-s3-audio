@@ -60,7 +60,7 @@ void app_main(void)
     Mp3_Init();
 
     /* sdcard init - phải gọi trước khi tạo Sdcard_Task (tạo xSdCommandQueue, dùng bởi
-       Oled_Task để gửi SDCARD_CMD_GET_FRAME qua SRM mỗi khi cần 1 frame animation) */
+       Oled_Task để gửi SDCARD_CMD_GET_SINGLE_FRAME qua SRM mỗi khi cần 1 frame animation) */
     Sdcard_Init();
 
     /* start run task */

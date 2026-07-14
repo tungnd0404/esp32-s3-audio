@@ -62,8 +62,9 @@ extern Sdcard_SongInfoType_s gaSongList[SDCARD_MAX_SONGS];
 extern uint16_t gu16SongCount;
 
 /* Hàng đợi lệnh dùng chung tới Sdcard_Task (phần tử kiểu Srm_Message_s), do Sdcard_Init()
-   tạo (Sdcard_Task là owner dữ liệu double buffer animation - SDCARD_CMD_PRELOAD_BUFFER/
-   SDCARD_CMD_LOAD_MISSING_FRAME, xem srm.h và driver/buffer/double_buffer.c) */
+   tạo (Sdcard_Task là owner của thẻ SD - cả double buffer animation lẫn dữ liệu mp3 thô,
+   nhận SDCARD_CMD_GET_SINGLE_FRAME qua Srm_SdcardGetSingleFrame(), xem srm.h và
+   driver/buffer/double_buffer.c) */
 extern QueueHandle_t xSdCommandQueue;
 
 /* ===================================================

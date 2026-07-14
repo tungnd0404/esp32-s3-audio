@@ -47,9 +47,8 @@ static volatile float gf32VirtualTime = 0.0f;
 
 /**
  * @brief SyncFrame_RequestDecodeTime
- * Gửi lệnh MP3_CMD_GET_DECODE_TIME vào xMp3CommandQueue cho Mp3_Task xử lý, chờ response.
- * Response queue do SRM tự quản lý theo task đang gọi (xem Srm_SendCommand) - hàm này
- * không cần tự tạo/giữ response queue nữa.
+ * Hỏi Mp3_Task thời gian đã giải mã qua Srm_Mp3GetDecodeTime() (xem srm.h). Response queue
+ * do SRM tự quản lý theo task đang gọi - hàm này không cần tự tạo/giữ response queue.
  * @param
  * @return giá trị SCI_DECODE_TIME nhận từ Mp3_Task, hoặc gu16DecodePrev (giá trị cũ) nếu
  *         xMp3CommandQueue chưa tồn tại, đầy, hoặc không nhận được response trong
@@ -57,17 +56,16 @@ static volatile float gf32VirtualTime = 0.0f;
  */
 static uint16_t SyncFrame_RequestDecodeTime(void)
 {
-    /* Vào: không cần tham số cho MP3_CMD_GET_DECODE_TIME nên để 0; ra: decode time nhận được */
-    uint32_t lu32Payload = 0U;
+    uint16_t lu16DecodeTime;
 
-    if (Srm_SendCommand(xMp3CommandQueue, MP3_CMD_GET_DECODE_TIME, &lu32Payload,
-                         pdMS_TO_TICKS(SYNC_FRAME_REQUEST_TIMEOUT_MS)) == false)
+    if (Srm_Mp3GetDecodeTime(xMp3CommandQueue, &lu16DecodeTime,
+                              pdMS_TO_TICKS(SYNC_FRAME_REQUEST_TIMEOUT_MS)) == false)
     {
         /* Mp3_Task chưa tồn tại/đầy/timeout -> dùng tạm giá trị cũ */
         return gu16DecodePrev;
     }
 
-    return (uint16_t)lu32Payload;
+    return lu16DecodeTime;
 }
 
 /**

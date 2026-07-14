@@ -88,13 +88,14 @@ static void Sdcard_HandleCommand(const Srm_Message_s *pRequest)
 {
     switch ((Srm_CommandType_e)pRequest->cmdId)
     {
-        case SDCARD_CMD_GET_FRAME:
+        case SDCARD_CMD_GET_SINGLE_FRAME:
         {
             /* Chạy thẳng trên thread của Sdcard_Task - DoubleBuffer_GetFrame() tự lo nạp
-               trước/nạp gấp bằng lời gọi hàm thường nếu thiếu dữ liệu, ghi thẳng vào buffer
-               Oled_Task đã đăng ký sẵn (DoubleBuffer_SetOutputBuffer), rồi mới trả lời -
-               Oled_Task nhận được phản hồi là biết chắc dữ liệu đã sẵn sàng trong buffer đó */
-            bool lbSuccess = DoubleBuffer_GetFrame(pRequest->payload);
+               trước/nạp gấp bằng lời gọi hàm thường nếu thiếu dữ liệu, ghi thẳng vào
+               pRequest->pData (buffer của Oled_Task truyền vào qua Srm_SdcardGetSingleFrame(),
+               xem srm.c) rồi mới trả lời - Oled_Task nhận được phản hồi thành công là biết
+               chắc dữ liệu đã sẵn sàng trong buffer của chính nó */
+            bool lbSuccess = DoubleBuffer_GetFrame(pRequest->payload, (uint8_t *)pRequest->pData);
             Srm_Reply(pRequest, (uint32_t)lbSuccess);
             break;
         }
@@ -112,7 +113,7 @@ static void Sdcard_HandleCommand(const Srm_Message_s *pRequest)
  * Đọc thêm dữ liệu từ gpMp3File (nếu đang mở và chưa hết file) nạp vào xMp3RingBuffer cho
  * tới khi KHÔNG còn đủ chỗ trống cho 1 khối SDCARD_MP3_READ_CHUNK_SIZE nữa, hoặc gặp EOF.
  * Gọi mỗi vòng lặp trong Sdcard_LoadCurrentSong() để xMp3RingBuffer luôn được nạp gần đầy -
- * khác với frame animation (Oled_Task chủ động xin từng frame qua SDCARD_CMD_GET_FRAME,
+ * khác với frame animation (Oled_Task chủ động xin từng frame qua SDCARD_CMD_GET_SINGLE_FRAME,
  * xem DoubleBuffer_GetFrame), ring buffer không cần Mp3_Task báo hiệu mới nạp: cứ còn chỗ
  * trống là nạp tiếp, đơn giản hơn vì đây là luồng dữ liệu tuần tự (không cần truy cập ngẫu
  * nhiên theo chỉ số như frame animation).
@@ -148,7 +149,7 @@ static void Sdcard_FillMp3RingBuffer(void)
 /**
  * @brief Sdcard_LoadCurrentSong
  * Mở double buffer + file mp3 cho bài hát ĐANG THỰC SỰ PHÁT (gsPlayerContext.currentSong)
- * rồi liên tục: (1) xử lý lệnh SDCARD_CMD_GET_FRAME gửi tới qua xSdCommandQueue mỗi khi
+ * rồi liên tục: (1) xử lý lệnh SDCARD_CMD_GET_SINGLE_FRAME gửi tới qua xSdCommandQueue mỗi khi
  * Oled_Task cần 1 frame animation (xem Sdcard_HandleCommand), và
  * (2) nạp thêm dữ liệu mp3 vào xMp3RingBuffer cho Mp3_Task rút ra phát (xem
  * Sdcard_FillMp3RingBuffer) - cho tới khi có bài mới cần chuyển sang. Cùng khuôn mẫu với
@@ -488,9 +489,9 @@ bool Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
  * @brief Sdcard_Task
  * Task owner duy nhất của thẻ nhớ SD (kiến trúc Owner Task, xem srm.h). Nạp dữ liệu frame
  * animation từ thẻ nhớ vào double buffer, VÀ dữ liệu mp3 thô vào xMp3RingBuffer, đều cho
- * bài đang phát - Oled_Task/Mp3_Task chỉ đọc dữ liệu qua DoubleBuffer_*/xMp3RingBuffer,
- * không tự đụng vào thẻ SD. Cùng khuôn thuật toán với Oled_Task (oled.c) để các task trong
- * hệ thống đọc thống nhất, dễ theo dõi:
+ * bài đang phát - Oled_Task/Mp3_Task chỉ đọc dữ liệu qua DoubleBuffer_GetFrame()/
+ * xMp3RingBuffer, không tự đụng vào thẻ SD. Cùng khuôn thuật toán với Oled_Task (oled.c) để
+ * các task trong hệ thống đọc thống nhất, dễ theo dõi:
  *
  * Cơ chế nhận sự kiện:
  * - Không tự poll trạng thái theo chu kỳ, mà "ngủ" (xTaskNotifyWait, portMAX_DELAY) chờ

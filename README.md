@@ -202,7 +202,7 @@ Kiến trúc **SRM (Shared Resource Manager — `driver/srm/`)** hiện thực h
 | Tài nguyên | Owner task | Command queue | cmdId (`srm.h`) |
 |---|---|---|---|
 | VS1053 (phần cứng) | `Mp3_Task` | `xMp3CommandQueue` | `MP3_CMD_GET_DECODE_TIME` |
-| Double buffer animation (RAM, xem [Animation Pipeline](#animation-pipeline)) | `Sdcard_Task` | `xSdCommandQueue` | `SDCARD_CMD_GET_FRAME` |
+| Double buffer animation (RAM, xem [Animation Pipeline](#animation-pipeline)) | `Sdcard_Task` | `xSdCommandQueue` | `SDCARD_CMD_GET_SINGLE_FRAME` |
 
 ```
 sync_frame.c                    xMp3CommandQueue                Mp3_Task
@@ -225,7 +225,7 @@ Srm_SendCommand(
 - Vì mỗi task có response queue riêng, nhiều task gửi lệnh gần nhau **không bao giờ nhận nhầm response của nhau**, kể cả khi cùng gửi 1 loại `cmdId`.
 - **Giới hạn quan trọng đã biết (VS1053)**: `Mp3_ServicePendingCommand()` chỉ được gọi bên trong `Mp3_StreamCurrentSong()` — tức chỉ khi `Mp3_Task` đang thực sự stream nhạc. Nếu `Mp3_Task` đang rảnh (chưa phát bài nào) hoặc đang Pause, lệnh gửi tới `xMp3CommandQueue` sẽ không có ai xử lý cho tới khi phát nhạc trở lại. Bên gọi (`Srm_SendCommand`) luôn có timeout + fallback dùng giá trị cũ nên không bị treo, nhưng dữ liệu trả về có thể "cũ" trong khoảng thời gian đó.
 - Không có lệnh set volume/play/pause/seek qua SRM — các hành động này hiện được điều khiển trực tiếp bằng notification tới `Mp3_Task`, không qua SRM.
-- Chỉ có **1 API gửi lệnh** (`Srm_SendCommand()`, luôn blocking + chờ phản hồi) cho mọi cmdId. Với `SDCARD_CMD_GET_FRAME`, `Sdcard_Task` chạy thẳng `DoubleBuffer_GetFrame()` trên chính thread của mình (tự nạp trước/nạp gấp bằng lời gọi hàm thường nếu thiếu dữ liệu, không round-trip SRM thêm lần nào nữa) rồi mới trả lời — xem chi tiết luồng double buffer trong [Animation Pipeline](#animation-pipeline).
+- Chỉ có **1 API gửi lệnh** (`Srm_SendCommand()`, luôn blocking + chờ phản hồi) cho mọi cmdId. Với `SDCARD_CMD_GET_SINGLE_FRAME`, `Sdcard_Task` chạy thẳng `DoubleBuffer_GetFrame()` trên chính thread của mình (tự nạp trước/nạp gấp bằng lời gọi hàm thường nếu thiếu dữ liệu, không round-trip SRM thêm lần nào nữa) rồi mới trả lời — xem chi tiết luồng double buffer trong [Animation Pipeline](#animation-pipeline).
 
 ## Luồng Notification (Notification Flow)
 
@@ -300,7 +300,7 @@ Mp3_Task đang stream ──► VS1053 thanh ghi SCI_DECODE_TIME (giây, 16-bit,
                      SyncFrame_GetFrameIndex() = virtualTime * FRAME_PER_SECOND (15 fps)
                               │
                               ▼
-                     Oled_PlayAnimation(): Srm_SendCommand(SDCARD_CMD_GET_FRAME, frameIndex) → vẽ nếu thành công
+                     Oled_PlayAnimation(): Srm_SendCommand(SDCARD_CMD_GET_SINGLE_FRAME, frameIndex) → vẽ nếu thành công
 ```
 
 Animation được đồng bộ theo **thời gian giải mã audio thực tế** (không phải thời gian hệ thống `xTaskGetTickCount`) — nếu VS1053 tạm khựng vì lý do phần cứng, animation tự động khựng theo, tránh trôi hình so với nhạc.
@@ -314,7 +314,7 @@ Oled_Task                       xSdCommandQueue                    Sdcard_Task
 (Oled_PlayAnimation)            (tạo bởi Sdcard_Init)          (owner double buffer)
 
 Frame cần vẽ đổi     ──► Srm_SendCommand(                 ──► DoubleBuffer_GetFrame(index)
-so với lần trước           SDCARD_CMD_GET_FRAME,                 - tìm trong buffer A/B đang dùng
+so với lần trước           SDCARD_CMD_GET_SINGLE_FRAME,                 - tìm trong buffer A/B đang dùng
 (block, timeout 5s)        payload = frame index,                - hết thì tự flip/nạp trước/nạp
                             timeout 5s)                             gấp bằng lời gọi hàm thường
                                                                      (không round-trip SRM nào
@@ -325,7 +325,7 @@ so với lần trước           SDCARD_CMD_GET_FRAME,                 - tìm t
        ◄──────────────────── payload trả về: 1 = OK, 0 = lỗi ──────┘  rồi mới Srm_Reply()
 ```
 
-Nhờ toàn bộ state machine chọn buffer/flip/nạp trước/nạp gấp giờ chạy **trên chính thread của Sdcard_Task**, module không cần mutex bảo vệ dữ liệu như thiết kế cũ (chỉ 1 thread từng đụng vào 2 mảng buffer) và cũng không cần 2 lệnh SRM riêng (`SDCARD_CMD_PRELOAD_BUFFER`/`SDCARD_CMD_LOAD_MISSING_FRAME`) — gộp thành 1 `SDCARD_CMD_GET_FRAME` duy nhất, owner tự quyết định toàn bộ logic bên trong. `DoubleBuffer_SetOutputBuffer()` được `Oled_Init()` gọi đúng 1 lần lúc khởi động (trước khi bất kỳ task nào chạy) để đăng ký `gau8Frame` làm đích ghi, nhờ vậy request SRM chỉ cần mang đúng 1 giá trị (chỉ số frame) mà không phải mở rộng `Srm_Message_s` để mang thêm con trỏ đích mỗi lần gọi.
+Nhờ toàn bộ state machine chọn buffer/flip/nạp trước/nạp gấp giờ chạy **trên chính thread của Sdcard_Task**, module không cần mutex bảo vệ dữ liệu như thiết kế cũ (chỉ 1 thread từng đụng vào 2 mảng buffer) và cũng không cần 2 lệnh SRM riêng (`SDCARD_CMD_PRELOAD_BUFFER`/`SDCARD_CMD_LOAD_MISSING_FRAME`) — gộp thành 1 `SDCARD_CMD_GET_SINGLE_FRAME` duy nhất, owner tự quyết định toàn bộ logic bên trong. `DoubleBuffer_SetOutputBuffer()` được `Oled_Init()` gọi đúng 1 lần lúc khởi động (trước khi bất kỳ task nào chạy) để đăng ký `gau8Frame` làm đích ghi, nhờ vậy request SRM chỉ cần mang đúng 1 giá trị (chỉ số frame) mà không phải mở rộng `Srm_Message_s` để mang thêm con trỏ đích mỗi lần gọi.
 
 Trước đây cơ chế preload/miss dùng chung 1 `EventGroupHandle_t` (`EVT_PRELOAD`/`EVT_LOAD_MISS`/`EVT_READY`) không mang được payload, khiến `Sdcard_Task` phải **đoán** frame nào bị thiếu (heuristic "nạp buffer còn lại, bắt đầu từ ngay sau buffer đang dùng"). Sau khi chuyển sang SRM, yêu cầu mang thẳng chỉ số frame cần (`payload`), loại bỏ hoàn toàn phần đoán này.
 
@@ -386,7 +386,7 @@ Không có framework log tập trung hay cấp độ log cấu hình được th
 
 ## Hạn chế đã biết (Known Limitations)
 
-Toàn bộ bug tìm thấy trong đợt review kỹ thuật (Critical/High/Medium/Low) đã được sửa trực tiếp trong code — bao gồm: busy-loop `while(1);` trong `app_main()` starve Task Watchdog (nay dùng `vTaskDelay(portMAX_DELAY);`), thiếu `volatile` trên `mainState`/`playbackState` (`task/player_manager.h`), SRM registry đầy thất bại âm thầm (nay có `ESP_LOGE`), `malloc`/`free` lặp lại trong `i2c_display_image()` (nay dùng buffer tĩnh), `Sdcard_Mount()` thất bại không có phản hồi cho người dùng (nay hiển thị lỗi lên OLED), và cặp `start`/`count` không nhất quán khi `DoubleBuffer_LoadInternal()` load lỗi giữa chừng. `ring_buffer.c/h` (từng là code chết/không biên dịch được, tham chiếu biến/hàm chưa từng khai báo) đã được viết lại thành driver ring buffer thuần dùng cho luồng mp3 (`xMp3RingBuffer`, xem [Audio Pipeline](#audio-pipeline)) thay vì xoá khỏi repo. `double_buffer.c` cũng được thiết kế lại: bỏ hẳn mutex, chỉ `Sdcard_Task` đụng vào 2 buffer (kể cả đọc, qua `SDCARD_CMD_GET_FRAME`), xem [Animation Pipeline](#animation-pipeline). Chi tiết từng bug xem báo cáo review kỹ thuật riêng đi kèm (mục 17 — Bug Report).
+Toàn bộ bug tìm thấy trong đợt review kỹ thuật (Critical/High/Medium/Low) đã được sửa trực tiếp trong code — bao gồm: busy-loop `while(1);` trong `app_main()` starve Task Watchdog (nay dùng `vTaskDelay(portMAX_DELAY);`), thiếu `volatile` trên `mainState`/`playbackState` (`task/player_manager.h`), SRM registry đầy thất bại âm thầm (nay có `ESP_LOGE`), `malloc`/`free` lặp lại trong `i2c_display_image()` (nay dùng buffer tĩnh), `Sdcard_Mount()` thất bại không có phản hồi cho người dùng (nay hiển thị lỗi lên OLED), và cặp `start`/`count` không nhất quán khi `DoubleBuffer_LoadInternal()` load lỗi giữa chừng. `ring_buffer.c/h` (từng là code chết/không biên dịch được, tham chiếu biến/hàm chưa từng khai báo) đã được viết lại thành driver ring buffer thuần dùng cho luồng mp3 (`xMp3RingBuffer`, xem [Audio Pipeline](#audio-pipeline)) thay vì xoá khỏi repo. `double_buffer.c` cũng được thiết kế lại: bỏ hẳn mutex, chỉ `Sdcard_Task` đụng vào 2 buffer (kể cả đọc, qua `SDCARD_CMD_GET_SINGLE_FRAME`), xem [Animation Pipeline](#animation-pipeline). Chi tiết từng bug xem báo cáo review kỹ thuật riêng đi kèm (mục 17 — Bug Report).
 
 Các hạn chế còn lại (không phải bug, là tính năng/thiết kế còn thiếu, chưa được yêu cầu sửa):
 

@@ -16,54 +16,57 @@
 
 /* SRM (Shared Resource Manager): bộ API dùng chung cho kiến trúc Owner Task - 1 task sở
    hữu 1 tài nguyên dùng chung (vd Mp3_Task sở hữu VS1053), các task khác không được đụng
-   thẳng vào tài nguyên đó mà phải gửi lệnh qua command queue của owner, dùng API ở đây.
-   SRM cũng là nơi quản lý tập trung mã lệnh (cmdId) của TẤT CẢ tài nguyên dùng chung trong
-   hệ thống - mỗi tài nguyên mới thêm vào sau này (không riêng gì Mp3) đều khai báo enum
-   lệnh riêng của nó ngay tại đây, không khai báo rải rác trong header của từng task owner. */
+   thẳng vào tài nguyên đó mà phải gửi lệnh qua command queue của owner. SRM cũng là nơi
+   quản lý tập trung mã lệnh (cmdId) của TẤT CẢ tài nguyên dùng chung trong hệ thống - mỗi
+   tài nguyên mới thêm vào sau này đều khai báo enum lệnh riêng của nó ngay tại đây.
+
+   Mỗi lệnh có 1 hàm gửi riêng (Srm_<Owner><Lệnh>, xem GLOBAL FUNCTION bên dưới) thay vì 1
+   hàm gửi chung nhận cmdId + con trỏ payload kiểu uint32_t* - vì không phải lệnh nào cũng
+   chỉ cần trao đổi đúng 4 byte (vd SDCARD_CMD_GET_SINGLE_FRAME cần nhận về nguyên 1 frame 1024
+   byte). Tham số/kiểu trả về của mỗi hàm khớp đúng bản chất dữ liệu của lệnh đó, không phải
+   ép hết về uint32_t/void* chung chung ở nơi gọi. Cơ chế gửi/nhận generic (queue + registry
+   response queue theo từng task) vẫn dùng chung, chỉ ẩn sau các hàm riêng này. */
 
 /* --- Lệnh cho tài nguyên VS1053 (owner: Mp3_Task, xem mp3.h/mp3.c) --- */
-/* Mã lệnh (Srm_Message_s.cmdId) gửi tới Mp3_Task qua xMp3CommandQueue. Mp3_Task là owner
-   duy nhất của thiết bị VS1053 - mọi module khác (sync_frame, oled...) không được gọi
-   thẳng vs1053_read_sci/vs1053_write_sci/vs1053_send_buffer, mà phải gửi lệnh qua đây. */
+/* --- Lệnh cho tài nguyên double buffer animation (owner: Sdcard_Task, xem task/sdcard.c) --- */
 typedef enum {
     MP3_CMD_GET_DECODE_TIME,
-    /* Mở rộng sau: MP3_CMD_GET_VOLUME, MP3_CMD_SET_VOLUME, MP3_CMD_PLAY, MP3_CMD_PAUSE, ... */
+    SDCARD_CMD_GET_SINGLE_FRAME,
 
-    /* --- Lệnh cho tài nguyên double buffer animation (owner: Sdcard_Task, xem
-       driver/buffer/double_buffer.c/h) --- */
-    /* Yêu cầu lấy dữ liệu 1 frame theo chỉ số (payload = chỉ số frame cần), gửi qua
-       Srm_SendCommand từ Oled_Task. Owner (Sdcard_Task) chạy thẳng DoubleBuffer_GetFrame()
-       trên chính thread của mình - tự lo cả nạp trước lẫn nạp gấp nếu thiếu bằng lời gọi
-       hàm thường (không round-trip SRM thêm lần nào nữa, khác thiết kế cũ tách riêng
-       SDCARD_CMD_PRELOAD_BUFFER/SDCARD_CMD_LOAD_MISSING_FRAME) - rồi mới trả lời (payload
-       trả về: 1 = thành công, 0 = thất bại). DoubleBuffer_GetFrame() ghi thẳng vào buffer
-       Oled_Task đã đăng ký sẵn qua DoubleBuffer_SetOutputBuffer(), nên Srm_Message_s không
-       cần mang thêm con trỏ đích. */
-    SDCARD_CMD_GET_FRAME,
-
-    /* Luôn đặt cuối cùng - không phải lệnh thật, dùng để Srm_SendCommand validate cmdId
-       truyền vào có hợp lệ hay không (cmdId >= SRM_CMD_INVALID -> từ chối, không gửi) */
+    /* Luôn đặt cuối cùng - không phải lệnh thật, dùng để validate cmdId nhận được ở phía
+       owner (Mp3_HandleCommand/Sdcard_HandleCommand) có hợp lệ hay không */
     SRM_CMD_INVALID
 } Srm_CommandType_e;
 
 /* Phân loại nội dung message */
 typedef enum {
-    SRM_MSG_KIND_COMMAND,   /* Yêu cầu owner task thực hiện hành động / trả dữ liệu */
-    SRM_MSG_KIND_DATA       /* Dữ liệu thuần, dùng cho response */
+    SRM_MSG_COMMAND,   /* Yêu cầu owner task thực hiện hành động / trả dữ liệu */
+    SRM_MSG_DATA       /* Dữ liệu thuần, dùng cho response */
 } Srm_MsgKindType_e;
 
-/* Message chung cho MỌI command queue theo kiến trúc Owner Task, không riêng gì 1 module.
-   payload là uint32_t thô - task nhận tự ép kiểu/diễn giải theo đúng cmdId của mình
-   (vd (uint16_t)payload nếu cmdId trả về giá trị 16-bit) */
+/* Message chung cho MỌI command queue theo kiến trúc Owner Task, không riêng gì 1 module -
+   chỉ dùng NỘI BỘ bởi các hàm Srm_<Owner><Lệnh> (bên gửi) và Srm_Reply (bên owner trả lời),
+   module ngoài SRM không tự dựng struct này. 2 kênh mang dữ liệu:
+   - payload: giá trị vô hướng nhỏ (4 byte) - đủ cho phần lớn lệnh (chỉ số frame lúc gửi,
+     kết quả thành công/thất bại hoặc thời gian giải mã lúc trả lời...)
+   - pData: con trỏ dữ liệu LỚN HƠN 4 byte (vd buffer 1024 byte của 1 frame animation), NULL
+     nếu lệnh không cần. Do bên gửi sở hữu (biến local/tham số của bên gửi) - an toàn vì
+     Srm_<Owner><Lệnh> block bên gửi cho tới khi nhận phản hồi, con trỏ luôn còn sống suốt
+     thời gian owner xử lý, owner ghi thẳng vào đó thay vì phải copy qua lại qua queue */
 typedef struct {
     /* COMMAND hay DATA */
     Srm_MsgKindType_e kind;
-    /* Mã lệnh, định nghĩa riêng theo từng owner task (vd Srm_CommandType_e) */
+    /* Mã lệnh, định nghĩa riêng theo từng owner task (Srm_CommandType_e) */
     uint32_t cmdId;
-    /* Dữ liệu thô đi kèm: tham số của lệnh (khi kind == COMMAND) hoặc kết quả trả về
-       (khi kind == DATA) */
+    /* Dữ liệu vô hướng nhỏ đi kèm: tham số của lệnh (khi kind == COMMAND) hoặc kết quả trả
+       về (khi kind == DATA) */
     uint32_t payload;
-    /* Queue trả lời, chỉ dùng khi kind == SRM_MSG_KIND_COMMAND và cần response.
+    /* Con trỏ dữ liệu lớn hơn đi kèm (khi lệnh cần), NULL nếu không cần - xem giải thích ở
+       trên. Chỉ có ý nghĩa khi kind == COMMAND (bên gửi truyền vào); owner ghi thẳng dữ liệu
+       trả về vào đây (nếu có) trước khi gọi Srm_Reply(), không dùng field này ở chiều
+       response (payload đã đủ cho kết quả 4 byte) */
+    void *pData;
+    /* Queue trả lời, chỉ dùng khi kind == SRM_MSG_COMMAND và cần response.
        NULL nếu không cần phản hồi. Do bên gửi tự tạo và sở hữu - mỗi bên gửi cần 1 kênh
        response riêng, không dùng chung giữa nhiều bên gửi khác nhau. */
     QueueHandle_t responseQueue;
@@ -78,52 +81,55 @@ typedef struct {
  * Khởi tạo module SRM: tạo mutex bảo vệ registry (ánh xạ task -> response queue riêng,
  * xem srm.c). PHẢI gọi đúng 1 lần trong app_main(), TRƯỚC khi bất kỳ task nào được tạo
  * (xTaskCreatePinnedToCore/xTaskCreate) - lúc đó chỉ có 1 luồng thực thi duy nhất nên tạo
- * mutex không cần đồng bộ hoá gì thêm. Nếu tạo mutex kiểu lazy (tạo khi cần bên trong
- * Srm_SendCommand) thì 2 task gọi lần đầu cùng lúc có thể cùng thấy mutex chưa tồn tại và
- * cùng tạo, ra 2 mutex khác nhau - không bảo vệ được gì cả.
+ * mutex không cần đồng bộ hoá gì thêm. Nếu tạo mutex kiểu lazy (tạo khi cần bên trong hàm
+ * gửi lệnh) thì 2 task gọi lần đầu cùng lúc có thể cùng thấy mutex chưa tồn tại và cùng tạo,
+ * ra 2 mutex khác nhau - không bảo vệ được gì cả.
  * @param
  * @return
  */
 void Srm_Init(void);
 
 /**
- * @brief Srm_SendCommand
- * Gửi 1 lệnh vào command queue của owner task, chờ phản hồi.
- *
- * SRM tự động quản lý response queue theo TỪNG TASK GỌI (không phải theo module gọi):
- * ngay lần đầu tiên 1 task gọi Srm_SendCommand, SRM tạo 1 queue riêng dành cho đúng task
- * đó (khoá theo TaskHandle_t lấy từ xTaskGetCurrentTaskHandle()) và ghi nhớ lại (registry
- * nội bộ, xem Srm_GetOwnResponseQueue() trong srm.c) để dùng lại cho mọi lần gọi sau, kể
- * cả khi được gọi từ nhiều module khác nhau nhưng cùng chạy trong 1 task. Vì mỗi task có
- * queue response RIÊNG, 2 task khác nhau cùng gửi lệnh gần nhau không bao giờ nhận nhầm
- * response của nhau - kể cả khi cùng gửi 1 loại cmdId.
- *
- * Lưu ý: 1 task chỉ nên đóng 1 vai tại 1 thời điểm khi dùng SRM - hoặc là owner (nhận
- * command hướng vào mình qua ownerQueue riêng của nó, như Mp3_Task), hoặc là bên gửi (gọi
- * hàm này chờ response). Nếu 1 task vừa là owner vừa tự gọi Srm_SendCommand đồng thời,
- * command người khác gửi tới và response nó đang chờ sẽ lẫn vào chung 1 queue của chính
- * nó - trường hợp này chưa được hỗ trợ.
- *
- * @param ownerQueue: command queue của owner task cần gửi tới (vd xMp3CommandQueue)
- * @param cmdId: mã lệnh (định nghĩa theo owner task, vd Srm_CommandType_e)
- * @param pPayload: [in/out] vào: dữ liệu kèm theo lệnh (vd giá trị volume muốn set), 0 nếu
- *        không cần; ra: payload nhận được từ owner task (chỉ khi hàm trả về true)
- * @param timeoutTicks: thời gian tối đa chờ phản hồi
- * @return true nếu gửi và nhận được phản hồi thành công, false nếu ownerQueue chưa tồn
- *         tại, cmdId không hợp lệ (>= SRM_CMD_INVALID), SRM hết chỗ đăng ký task mới,
- *         command queue đầy, hoặc hết thời gian chờ
- */
-bool Srm_SendCommand(QueueHandle_t ownerQueue, uint32_t cmdId, uint32_t *pPayload,
-                      TickType_t timeoutTicks);
-
-/**
  * @brief Srm_Reply
- * Owner task dùng để trả lời 1 request đã nhận được từ command queue của chính mình.
+ * Owner task dùng để trả lời 1 request đã nhận được từ command queue của chính mình. Nếu
+ * request có mang pData (vd SDCARD_CMD_GET_SINGLE_FRAME), owner phải ghi dữ liệu trả về thẳng vào
+ * đó (qua con trỏ nhận được trong Srm_Message_s.pData) TRƯỚC KHI gọi hàm này.
  * @param pRequest: request đã nhận (dùng pRequest->responseQueue để gửi trả lời)
- * @param payload: dữ liệu trả về
+ * @param payload: dữ liệu vô hướng trả về (kết quả thành công/thất bại, giá trị đọc được...)
  * @return true nếu gửi trả lời thành công, false nếu pRequest không có responseQueue hoặc
  *         gửi thất bại (hàng đợi đầy)
  */
 bool Srm_Reply(const Srm_Message_s *pRequest, uint32_t payload);
+
+/* --- API riêng cho từng lệnh, 1 lệnh 1 hàm - xem Srm_CommandType_e để biết đủ danh sách --- */
+
+/**
+ * @brief Srm_Mp3GetDecodeTime
+ * Hỏi Mp3_Task thời gian đã giải mã (giây) của bài đang phát, đọc từ thanh ghi
+ * SCI_DECODE_TIME của VS1053 (owner: Mp3_Task, xem mp3.h/mp3.c).
+ * @param ownerQueue: command queue của Mp3_Task (xMp3CommandQueue)
+ * @param pDecodeTimeSec: [out] thời gian đã giải mã (giây), chỉ hợp lệ khi hàm trả về true
+ * @param timeoutTicks: thời gian tối đa chờ phản hồi
+ * @return true nếu nhận được phản hồi trong thời gian chờ, false nếu ownerQueue chưa tồn
+ *         tại, SRM hết chỗ đăng ký task mới, command queue đầy, hoặc hết thời gian chờ
+ */
+bool Srm_Mp3GetDecodeTime(QueueHandle_t ownerQueue, uint16_t *pDecodeTimeSec, TickType_t timeoutTicks);
+
+/**
+ * @brief Srm_SdcardGetSingleFrame
+ * Xin Sdcard_Task 1 frame animation theo chỉ số (owner: Sdcard_Task, xem task/sdcard.c,
+ * driver/buffer/double_buffer.c). Sdcard_Task tự nạp trước/nạp gấp nếu thiếu dữ liệu trong
+ * buffer, ghi thẳng dữ liệu frame vào pOutFrame rồi mới trả lời - nhận được true nghĩa là
+ * pOutFrame đã có dữ liệu sẵn sàng để vẽ ngay, không cần xử lý gì thêm.
+ * @param ownerQueue: command queue của Sdcard_Task (xSdCommandQueue)
+ * @param frameIndex: chỉ số frame cần lấy
+ * @param pOutFrame: buffer đích nhận dữ liệu, kích thước tối thiểu FRAME_SIZE byte (xem
+ *        driver/buffer/double_buffer.h), do bên gọi sở hữu và còn sống tới khi hàm return
+ * @param timeoutTicks: thời gian tối đa chờ phản hồi
+ * @return true nếu lấy thành công (pOutFrame đã có dữ liệu mới), false nếu ownerQueue chưa
+ *         tồn tại, SRM hết chỗ đăng ký task mới, command queue đầy, hết thời gian chờ, hoặc
+ *         Sdcard_Task trả lời thất bại (không nạp được frame, vd lỗi đọc thẻ SD)
+ */
+bool Srm_SdcardGetSingleFrame(QueueHandle_t ownerQueue, uint32_t frameIndex, uint8_t *pOutFrame, TickType_t timeoutTicks);
 
 #endif /* SRM_H */

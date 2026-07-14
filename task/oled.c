@@ -29,7 +29,7 @@
 #define OLED_PAGE_COUNT             8U
 #define OLED_PAGE_WIDTH             128U
 
-/* Thời gian tối đa chờ Sdcard_Task phản hồi SDCARD_CMD_GET_FRAME (ms) - Sdcard_Task tự nạp
+/* Thời gian tối đa chờ Sdcard_Task phản hồi SDCARD_CMD_GET_SINGLE_FRAME (ms) - Sdcard_Task tự nạp
    trước/nạp gấp bên trong lúc xử lý lệnh này nếu cần (xem DoubleBuffer_GetFrame), có thể
    mất vài-vài chục ms đọc thẻ SD nên timeout để rộng, không phải giá trị chờ bình thường */
 #define OLED_GET_FRAME_TIMEOUT_MS          5000U
@@ -101,13 +101,6 @@ static bool Oled_PlayAnimation(SSD1306_t *dev, uint32_t *pu32NotifyValue)
        lần gọi này luôn được vẽ, không bị hiểu nhầm là "trùng frame" với lần gọi trước đó */
     uint32_t lu32LastDrawnFrameIndex = UINT32_MAX;
 
-    /* Biến riêng truyền cho Srm_SendCommand() - tham số pPayload của hàm đó là [in/out],
-       gửi đi mang chỉ số frame nhưng nhận về sẽ bị ghi đè thành giá trị phản hồi (0/1,
-       không phải index) - nếu dùng chung lu32FrameIndex sẽ làm hỏng nó, khiến dòng
-       lu32LastDrawnFrameIndex = lu32FrameIndex bên dưới gán nhầm giá trị 0/1 thay vì
-       index thật */
-    uint32_t lu32FramePayload = 0;
-
     /* Vòng lặp vẽ animation, chạy tới khi có notification mới cần xử lý */
     while (1)
     {
@@ -126,14 +119,13 @@ static bool Oled_PlayAnimation(SSD1306_t *dev, uint32_t *pu32NotifyValue)
            frame thật) */
         if (lu32FrameIndex != lu32LastDrawnFrameIndex)
         {
-            /* Gửi SDCARD_CMD_GET_FRAME tới Sdcard_Task (owner duy nhất của double buffer,
-               xem double_buffer.h) - Sdcard_Task tự nạp trước/nạp gấp nếu cần rồi memcpy
-               thẳng vào gau8Frame (đã đăng ký qua DoubleBuffer_SetOutputBuffer trong
-               Oled_Init) trước khi trả lời, nên chỉ vẽ khi chắc chắn nhận được dữ liệu mới -
-               tránh vẽ dữ liệu cũ/rác nếu timeout hay lỗi đọc thẻ SD */
-            lu32FramePayload = lu32FrameIndex;
-            if (Srm_SendCommand(xSdCommandQueue, SDCARD_CMD_GET_FRAME, &lu32FramePayload,
-                                 pdMS_TO_TICKS(OLED_GET_FRAME_TIMEOUT_MS)) == true)
+            /* Xin Sdcard_Task (owner duy nhất của double buffer, xem double_buffer.h) 1
+               frame mới qua SRM - Sdcard_Task tự nạp trước/nạp gấp nếu cần rồi ghi thẳng
+               vào gau8Frame (truyền thẳng làm tham số, không cần đăng ký trước) trước khi
+               trả lời, nên chỉ vẽ khi chắc chắn nhận được dữ liệu mới - tránh vẽ dữ liệu
+               cũ/rác nếu timeout hay lỗi đọc thẻ SD */
+            if (Srm_SdcardGetSingleFrame(xSdCommandQueue, lu32FrameIndex, gau8Frame,
+                                    pdMS_TO_TICKS(OLED_GET_FRAME_TIMEOUT_MS)) == true)
             {
                 Oled_DrawFrame(dev, gau8Frame);
                 lu32LastDrawnFrameIndex = lu32FrameIndex;
@@ -170,10 +162,7 @@ static bool Oled_DrawPauseIcon(SSD1306_t *dev, uint32_t *pu32NotifyValue)
 
 /**
  * @brief Oled_Init
- * Khởi tạo màn hình OLED (I2C + SSD1306). Đăng ký luôn gau8Frame làm buffer đích cho
- * DoubleBuffer_GetFrame() (xem DoubleBuffer_SetOutputBuffer) - gọi ở đây vì Oled_Init()
- * luôn chạy trong app_main(), TRƯỚC khi bất kỳ task nào (kể cả Sdcard_Task) được tạo, đảm
- * bảo buffer đích đã sẵn sàng trước khi Sdcard_Task có thể nhận SDCARD_CMD_GET_FRAME đầu tiên.
+ * Khởi tạo màn hình OLED (I2C + SSD1306)
  * @param dev: con trỏ device SSD1306
  * @return
  */
@@ -181,7 +170,6 @@ void Oled_Init(SSD1306_t *dev)
 {
     i2c_master_init(dev, CONFIG_SDA_GPIO, CONFIG_SCL_GPIO, CONFIG_RESET_GPIO);
     ssd1306_init(dev, CONFIG_WIDTH, CONFIG_HEIGHT);
-    DoubleBuffer_SetOutputBuffer(gau8Frame);
 }
 
 /**

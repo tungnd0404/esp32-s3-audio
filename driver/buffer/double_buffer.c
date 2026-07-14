@@ -14,8 +14,8 @@
 static const char *TAG = "DOUBLE_BUFFER";
 
 /* Hai vùng đệm chính, luân phiên phục vụ đọc (xem gbUsingA). CHỈ Sdcard_Task đụng vào -
-   Oled_Task không còn đọc thẳng mảng này (xem DoubleBuffer_GetFrame/SetOutputBuffer trong
-   double_buffer.h) nên không cần mutex bảo vệ như thiết kế cũ */
+   Oled_Task không còn đọc thẳng mảng này (DoubleBuffer_GetFrame() memcpy ra buffer riêng
+   của bên gọi - xem double_buffer.h) nên không cần mutex bảo vệ như thiết kế cũ */
 static uint8_t gau8BufferA[CACHE_FRAMES][FRAME_SIZE];
 static uint8_t gau8BufferB[CACHE_FRAMES][FRAME_SIZE];
 
@@ -39,12 +39,6 @@ static FILE *gpFrameFile = NULL;
 
 /* Tổng số frame của bài hiện tại (kích thước file / FRAME_SIZE) */
 static uint32_t gu32TotalFrames = 0;
-
-/* Buffer đích nhận dữ liệu frame, do Oled_Task đăng ký đúng 1 lần lúc khởi động (xem
-   DoubleBuffer_SetOutputBuffer). DoubleBuffer_GetFrame() memcpy thẳng vào đây rồi mới trả
-   lời qua SRM (Sdcard_HandleCommand trong sdcard.c), nên khi Oled_Task nhận được phản hồi
-   thì dữ liệu đã sẵn sàng trong buffer này */
-static uint8_t *gpOutputFrame = NULL;
 
 /* ===================================================
  *  LOCAL FUNCTION
@@ -167,11 +161,6 @@ void DoubleBuffer_Init(void)
     ESP_LOGI(TAG, "Double buffer module initialized");
 }
 
-void DoubleBuffer_SetOutputBuffer(uint8_t *pOutFrame)
-{
-    gpOutputFrame = pOutFrame;
-}
-
 void DoubleBuffer_Open(const char *path)
 {
     if (gpFrameFile != NULL)
@@ -229,9 +218,9 @@ void DoubleBuffer_Close(void)
     gu32TotalFrames = 0;
 }
 
-bool DoubleBuffer_GetFrame(uint32_t index)
+bool DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame)
 {
-    if ((gpOutputFrame == NULL) || (index >= gu32TotalFrames))
+    if ((pOutFrame == NULL) || (index >= gu32TotalFrames))
     {
         return false;
     }
@@ -244,7 +233,7 @@ bool DoubleBuffer_GetFrame(uint32_t index)
         if ((gbUsingA == true) && (gbReadyA == true) &&
             (index >= gu32StartA) && (index < gu32StartA + gu32CountA))
         {
-            memcpy(gpOutputFrame, gau8BufferA[index - gu32StartA], FRAME_SIZE);
+            memcpy(pOutFrame, gau8BufferA[index - gu32StartA], FRAME_SIZE);
 
             /* Đã đọc quá 80% buffer A và buffer B chưa sẵn sàng -> nạp trước ngay bằng lời
                gọi hàm thường (không cần "cờ đã yêu cầu" như thiết kế SRM cũ, vì nạp trước
@@ -265,7 +254,7 @@ bool DoubleBuffer_GetFrame(uint32_t index)
         if ((gbUsingA == false) && (gbReadyB == true) &&
             (index >= gu32StartB) && (index < gu32StartB + gu32CountB))
         {
-            memcpy(gpOutputFrame, gau8BufferB[index - gu32StartB], FRAME_SIZE);
+            memcpy(pOutFrame, gau8BufferB[index - gu32StartB], FRAME_SIZE);
 
             if ((gbReadyA == false) && ((index - gu32StartB) > (gu32CountB * 8U / 10U)))
             {
