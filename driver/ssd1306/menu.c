@@ -46,7 +46,7 @@ void Menu_Draw(SSD1306_t *dev)
     {
         /* Menu_UpdateScroll luôn đảm bảo gi32StartIndex >= 0 trước khi Draw được gọi */
         uint32_t lu32ItemIndex = (uint32_t)gi32StartIndex + lu32Line;
-        if (lu32ItemIndex >= gu16SongCount) break;
+        if (lu32ItemIndex >= gsPlayerContext.totalSong) break;
 
         char lacLine[32];
 
@@ -90,11 +90,11 @@ void Menu_UpdateScroll(void)
         gi32StartIndex = 0;
     }
 
-    /* Chỉ giới hạn theo gu16SongCount - MAX_LINES khi thực sự nhiều bài hơn số dòng hiển thị,
-       tránh (gu16SongCount - MENU_MAX_DISPLAY_LINES) âm khi danh sách ít bài hơn 1 màn hình */
-    if ((int32_t)gu16SongCount > MENU_MAX_DISPLAY_LINES)
+    /* Chỉ giới hạn theo gsPlayerContext.totalSong - MAX_LINES khi thực sự nhiều bài hơn số dòng hiển thị,
+       tránh (gsPlayerContext.totalSong - MENU_MAX_DISPLAY_LINES) âm khi danh sách ít bài hơn 1 màn hình */
+    if ((int32_t)gsPlayerContext.totalSong > MENU_MAX_DISPLAY_LINES)
     {
-        int32_t li32MaxStartIndex = (int32_t)gu16SongCount - MENU_MAX_DISPLAY_LINES;
+        int32_t li32MaxStartIndex = (int32_t)gsPlayerContext.totalSong - MENU_MAX_DISPLAY_LINES;
         if (gi32StartIndex > li32MaxStartIndex)
         {
             gi32StartIndex = li32MaxStartIndex;

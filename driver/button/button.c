@@ -31,7 +31,7 @@ volatile uint32_t gau32LastTickTime[BTN_EVENT_MAX] = {0};
 /* ===================================================
  *  ISR NEXT
  * =================================================== */
-void IRAM_ATTR Button_NextISR(void *arg)
+void Button_NextISR(void *arg)
 {
     uint32_t lu32Now = xTaskGetTickCountFromISR();
 
@@ -59,7 +59,7 @@ void IRAM_ATTR Button_NextISR(void *arg)
 /* ===================================================
  *  ISR PREV
  * =================================================== */
-void IRAM_ATTR Button_PrevISR(void *arg)
+void Button_PrevISR(void *arg)
 {
     uint32_t lu32Now = xTaskGetTickCountFromISR();
 
@@ -87,7 +87,7 @@ void IRAM_ATTR Button_PrevISR(void *arg)
 /* ===================================================
  *  ISR PLAY
  * =================================================== */
-void IRAM_ATTR Button_PlayISR(void *arg)
+void Button_PlayISR(void *arg)
 {
     uint32_t lu32Now = xTaskGetTickCountFromISR();
 

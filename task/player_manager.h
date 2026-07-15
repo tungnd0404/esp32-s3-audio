@@ -70,6 +70,10 @@ typedef struct
     volatile PlayerManager_PlaybackStateType_e playbackState;
     uint32_t cursor;
     uint32_t currentSong;
+    /* Tổng số bài hát tìm thấy trên thẻ nhớ - nguồn sự thật DUY NHẤT (không có biến rời song
+       song kiểu gu16SongCount nữa), do Sdcard_Task ghi trực tiếp ngay trong lúc quét thẻ SD
+       (xem Sdcard_ScanAndCreateDb trong sdcard.c), các module khác (menu.c, player_manager.c)
+       đều đọc qua đây */
     uint32_t totalSong;
 } PlayerManager__PlayerContextType_s;
 

@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "mp3.h"      /* extern xMp3CommandQueue - owner cố định của Srm_Mp3GetDecodeTime() */
 #include "sdcard.h"    /* extern xSdCommandQueue - owner cố định của Srm_SdcardGetSingleFrame() */
+#include "oled.h"      /* extern xOledCommandQueue - owner cố định của Srm_OledNotifyBootStatus() */
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -17,6 +18,14 @@
    có nhiều task hơn cùng gọi 1 hàm Srm_<Owner><Lệnh> (mỗi task chỉ chiếm 1 chỗ, không phụ
    thuộc số lần gọi). */
 #define SRM_MAX_REGISTERED_TASKS   8U
+
+/* Chu kỳ + số lần tối đa Srm_OledNotifyBootStatus() poll chờ xOledCommandQueue được tạo
+   (Oled_Task, chạy Core 0, tự gọi Oled_Init() lúc khởi động - không đảm bảo xong trước khi
+   Sdcard_Task, chạy Core 1, quét xong thẻ SD). Tổng thời gian chờ tối đa = 10ms * 50 = 500ms,
+   thừa đủ cho i2c_device_add()/ssd1306_init() (vài chục ms) dù Sdcard_Task có mount/quét
+   xong gần như ngay lập tức */
+#define SRM_OLED_BOOT_STATUS_RETRY_DELAY_MS    10U
+#define SRM_OLED_BOOT_STATUS_RETRY_COUNT       50U
 
 /* ===================================================
  *  LOCAL TYPE DEFINITIONS
@@ -333,5 +342,43 @@ Std_ReturnType Srm_SdcardGetSingleFrame(uint32_t frameIndex, uint8_t *pOutFrame,
     else
     {
         return E_NOT_OK;
+    }
+}
+
+/**
+ * @brief Srm_OledNotifyBootStatus
+ * Báo Oled_Task trạng thái mount/quét thẻ SD ngay lúc boot (owner: Oled_Task). Fire-and-forget
+ * - không qua Srm_SendCommand vì không cần chờ phản hồi, chỉ xQueueSend thẳng với
+ * responseQueue = NULL (Srm_Reply() phía Oled_Task tự bỏ qua an toàn khi responseQueue NULL,
+ * xem Srm_Reply() ở trên).
+ * @param statusCode: OLED_BOOT_STATUS_OK/SD_ERROR/NO_SONGS (xem oled.h)
+ * @return
+ */
+void Srm_OledNotifyBootStatus(uint32_t statusCode)
+{
+    Srm_Message_s lRequest;
+
+    /* xOledCommandQueue có thể chưa được tạo nếu Oled_Task chưa kịp chạy tới Oled_Init() -
+       poll chờ tối đa SRM_OLED_BOOT_STATUS_RETRY_COUNT lần, xem giải thích ở khai báo macro */
+    for (uint32_t i = 0; (xOledCommandQueue == NULL) && (i < SRM_OLED_BOOT_STATUS_RETRY_COUNT); i++)
+    {
+        vTaskDelay(pdMS_TO_TICKS(SRM_OLED_BOOT_STATUS_RETRY_DELAY_MS));
+    }
+
+    if (xOledCommandQueue == NULL)
+    {
+        ESP_LOGE(TAG, "xOledCommandQueue not ready, boot status %u lost", (unsigned int)statusCode);
+        return;
+    }
+
+    lRequest.kind = SRM_MSG_COMMAND;
+    lRequest.cmdId = OLED_CMD_SHOW_STATUS;
+    lRequest.payload = statusCode;
+    lRequest.pData = NULL;
+    lRequest.responseQueue = NULL;
+
+    if (xQueueSend(xOledCommandQueue, &lRequest, 0) != pdTRUE)
+    {
+        ESP_LOGE(TAG, "Failed to notify boot status %u to Oled_Task", (unsigned int)statusCode);
     }
 }

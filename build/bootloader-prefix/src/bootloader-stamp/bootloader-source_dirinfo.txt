@@ -4,6 +4,6 @@
 
 method=source_dir
 command=
-source_dir=D:/tungnd/esp_idf/Espressif/frameworks/esp-idf-v5.4.4/components/bootloader/subproject
+source_dir=E:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/bootloader/subproject
 work_dir=
 

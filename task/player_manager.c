@@ -92,9 +92,6 @@ void PlayerManager_Init(void)
     gsPlayerContext.mainState = MAIN_STATE_MENU;
     gsPlayerContext.buttonState = BTN_STATE_IDLE;
     gsPlayerContext.playbackState = PLAYBACK_STATE_IDLE;
-    /* Tổng số bài hát lấy từ kết quả Sdcard_ScanAndCreateDb() đã quét lúc boot (audio.c
-       gọi trước PlayerManager_Init() nên gu16SongCount đã có giá trị đúng ở đây) */
-    gsPlayerContext.totalSong = gu16SongCount;
 }
 
 /**

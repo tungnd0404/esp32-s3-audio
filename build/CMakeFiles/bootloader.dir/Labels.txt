@@ -1,13 +1,13 @@
 # Target labels
  bootloader
 # Source files and their labels
-D:/tungnd/audio/build/CMakeFiles/bootloader
-D:/tungnd/audio/build/CMakeFiles/bootloader.rule
-D:/tungnd/audio/build/CMakeFiles/bootloader-complete.rule
-D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
-D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
-D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
-D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
-D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
-D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
-D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule
+E:/project/Audio/build/CMakeFiles/bootloader
+E:/project/Audio/build/CMakeFiles/bootloader.rule
+E:/project/Audio/build/CMakeFiles/bootloader-complete.rule
+E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-build.rule
+E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-configure.rule
+E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-download.rule
+E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-install.rule
+E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-mkdir.rule
+E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-patch.rule
+E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp/bootloader-update.rule

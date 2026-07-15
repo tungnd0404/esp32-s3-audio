@@ -133,9 +133,9 @@ Thứ tự gọi trong `app_main()` (`main/Audio.c`), **thứ tự này có ý n
 1. `Srm_Init()` — tạo mutex bảo vệ registry của SRM. Phải gọi đầu tiên, khi hệ thống còn đơn luồng (chưa có task nào chạy song song để race).
 2. `Oled_Init(&dev)` — khởi tạo I2C + SSD1306. Đặt trước các bước thao tác thẻ SD để có thể hiển thị lỗi ngay lên màn hình nếu mount/scan thất bại (xem bước 4).
 3. `Sdcard_Mount()` — mount thẻ SD (SDMMC 1-bit), lấy `esp_err_t` trả về để kiểm tra ở bước 4.
-4. `Sdcard_ScanAndCreateDb("/sdcard")` → `Sdcard_ReadDbFile()` — quét toàn bộ thẻ SD, ghi `/sdcard/songs.db`, nạp `gaSongNameList`/`gu16SongCount`. Nếu mount lỗi hoặc quét xong không có bài hát nào (`gu16SongCount == 0`), hiển thị thông báo lỗi lên OLED (`ssd1306_display_text`) và giữ 2 giây trước khi tiếp tục boot.
+4. `Sdcard_ScanAndCreateDb("/sdcard")` → `Sdcard_ReadDbFile()` — quét toàn bộ thẻ SD, ghi `/sdcard/songs.db`, nạp `gaSongNameList`/`gsPlayerContext.totalSong`. Nếu mount lỗi hoặc quét xong không có bài hát nào (`gsPlayerContext.totalSong == 0`), hiển thị thông báo lỗi lên OLED (`ssd1306_display_text`) và giữ 2 giây trước khi tiếp tục boot.
 5. `Button_Init()` — cấu hình GPIO ngắt cho 3 nút (đặt sau cùng trong nhóm init phần cứng để tránh xử lý nhầm trạng thái nút được giữ sẵn lúc board đang boot).
-6. `PlayerManager_Init()` — khởi tạo `gsPlayerContext` (dùng `gu16SongCount` đã có từ bước 4, nên **bước 4 bắt buộc phải chạy trước bước này**).
+6. `PlayerManager_Init()` — khởi tạo `gsPlayerContext`.
 7. `Mp3_Init()` — tạo `xMp3CommandQueue` (bắt buộc trước khi tạo `Mp3_Task` và trước khi `PlayerManager_Task` có thể gửi notification tới `xMp3TaskHandle`).
 8. Tạo lần lượt 4 task: `Sdcard_Task` → `Mp3_Task` → `PlayerManager_Task` → `Oled_Task` (đều priority 5, pin core 1).
 9. `vTaskDelay(portMAX_DELAY);` — task `main` nhường CPU core 0 vĩnh viễn cho task Idle0 (trước đây là `while (1);` bận rộn, đã sửa — xem [Known Limitations](#hạn-chế-đã-biết-known-limitations)).
@@ -250,7 +250,7 @@ Giá trị notification gửi đi **chính là** `gsPlayerContext.buttonState` (
 - **`buttonState`**: ghi lại **hành động vừa xảy ra** do 1 lần bấm nút, **luôn tự về `BTN_STATE_IDLE`** ngay sau khi được xử lý xong trong cùng vòng lặp của `PlayerManager_Task` — mô phỏng đúng bản chất "bấm rồi nhả" của nút vật lý. Không dùng field này để biết nhạc đang PLAY hay PAUSE.
 - **`playbackState`** (`PLAYBACK_STATE_IDLE/PLAY/PAUSE`): trạng thái phát nhạc **tồn tại liên tục**, chỉ đổi khi người dùng bấm Play/Pause thật sự. `Oled_PlayAnimation()`/`Mp3_StreamCurrentSong()` đều đọc field này (không đọc `buttonState`) để quyết định có tiếp tục vòng lặp phát/vẽ hay không — đây là lý do vì sao tách `playbackState` ra khỏi `buttonState` là cần thiết: nếu dùng chung 1 field, animation/audio sẽ dừng ngay khi `buttonState` tự reset về IDLE ở vòng lặp kế tiếp của `PlayerManager_Task`, dù người dùng chưa hề bấm Pause.
 
-`cursor`/`currentSong`/`totalSong` cũng nằm trong struct này, dùng chung cho cả 3 task đọc.
+`cursor`/`currentSong`/`totalSong` cũng nằm trong struct này, dùng chung cho cả 3 task đọc. `totalSong` là nguồn sự thật DUY NHẤT cho tổng số bài hát - không có biến rời song song nào khác - do `Sdcard_Task` ghi trực tiếp ngay trong lúc quét thẻ SD (`Sdcard_ScanAndCreateDb`, `task/sdcard.c`).
 
 ## Audio Pipeline
 

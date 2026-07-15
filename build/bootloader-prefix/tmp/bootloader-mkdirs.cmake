@@ -6,22 +6,22 @@ cmake_minimum_required(VERSION 3.5)
 # If CMAKE_DISABLE_SOURCE_CHANGES is set to true and the source directory is an
 # existing directory in our source tree, calling file(MAKE_DIRECTORY) on it
 # would cause a fatal error, even though it would be a no-op.
-if(NOT EXISTS "D:/tungnd/esp_idf/Espressif/frameworks/esp-idf-v5.4.4/components/bootloader/subproject")
-  file(MAKE_DIRECTORY "D:/tungnd/esp_idf/Espressif/frameworks/esp-idf-v5.4.4/components/bootloader/subproject")
+if(NOT EXISTS "E:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/bootloader/subproject")
+  file(MAKE_DIRECTORY "E:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/bootloader/subproject")
 endif()
 file(MAKE_DIRECTORY
-  "D:/tungnd/audio/build/bootloader"
-  "D:/tungnd/audio/build/bootloader-prefix"
-  "D:/tungnd/audio/build/bootloader-prefix/tmp"
-  "D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp"
-  "D:/tungnd/audio/build/bootloader-prefix/src"
-  "D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp"
+  "E:/project/Audio/build/bootloader"
+  "E:/project/Audio/build/bootloader-prefix"
+  "E:/project/Audio/build/bootloader-prefix/tmp"
+  "E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp"
+  "E:/project/Audio/build/bootloader-prefix/src"
+  "E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp"
 )
 
 set(configSubDirs )
 foreach(subDir IN LISTS configSubDirs)
-    file(MAKE_DIRECTORY "D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp/${subDir}")
+    file(MAKE_DIRECTORY "E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp/${subDir}")
 endforeach()
 if(cfgdir)
-  file(MAKE_DIRECTORY "D:/tungnd/audio/build/bootloader-prefix/src/bootloader-stamp${cfgdir}") # cfgdir has leading slash
+  file(MAKE_DIRECTORY "E:/project/Audio/build/bootloader-prefix/src/bootloader-stamp${cfgdir}") # cfgdir has leading slash
 endif()

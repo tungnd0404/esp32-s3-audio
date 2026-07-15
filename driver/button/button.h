@@ -41,8 +41,8 @@ void Button_Init();
  *  ISR
  * =================================================== */
 
-void IRAM_ATTR Button_NextISR(void *arg);
-void IRAM_ATTR Button_PrevISR(void *arg);
-void IRAM_ATTR Button_PlayISR(void *arg);
+void Button_NextISR(void *arg);
+void Button_PrevISR(void *arg);
+void Button_PlayISR(void *arg);
 
 #endif /* BUTTON_H */

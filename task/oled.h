@@ -30,13 +30,25 @@ extern TaskHandle_t xOledTaskHandle;
 extern QueueHandle_t xOledCommandQueue;
 
 /* ===================================================
+ *  MACROS / DEFINES
+ * =================================================== */
+
+/* Trạng thái mount/quét thẻ SD lúc boot, dùng làm giá trị payload cho lệnh
+   OLED_CMD_SHOW_STATUS (xem srm.h/Srm_OledNotifyBootStatus) - Sdcard_Task gửi đúng 1 lần
+   ngay sau khi quét xong, Oled_Task hiển thị lỗi lên màn hình nếu cần trước khi vẽ menu */
+#define OLED_BOOT_STATUS_OK           0U
+#define OLED_BOOT_STATUS_SD_ERROR     1U
+#define OLED_BOOT_STATUS_NO_SONGS     2U
+
+/* ===================================================
  *  GLOBAL FUNCTION
  * =================================================== */
 
 /**
  * @brief Oled_Init
- * Khởi tạo màn hình OLED (I2C + SSD1306), đăng ký luôn buffer đích nhận frame animation cho
- * DoubleBuffer_GetFrame() (xem double_buffer.h)
+ * Add SSD1306 làm I2C device trên bus có sẵn (YÊU CẦU I2c_Init() - i2c.c - đã gọi thành công
+ * từ trước, xem i2c.h) rồi khởi tạo màn hình SSD1306. Gọi bởi chính Oled_Task lúc khởi động
+ * (cùng khuôn mẫu Mp3_Task tự gọi vs1053_init() - xem mp3.c), không còn gọi từ app_main.
  * @param dev: con trỏ device SSD1306
  * @return
  */
@@ -45,8 +57,9 @@ void Oled_Init(SSD1306_t *dev);
 /**
  * @brief Oled_Task
  * Task điều khiển màn hình OLED, nhận PlayerManager_ButtonStateType_e từ PlayerManager_Task
- * qua task notification (dùng chung thẳng enum này, không cần thêm 1 enum sự kiện riêng cho OLED)
- * @param pvParameters: con trỏ SSD1306_t* của màn hình, truyền vào lúc tạo task
+ * qua task notification (dùng chung thẳng enum này, không cần thêm 1 enum sự kiện riêng cho OLED).
+ * Tự khai báo device SSD1306 làm biến local và tự gọi Oled_Init() lúc khởi động.
+ * @param pvParameters: không dùng, luôn truyền NULL lúc tạo task
  * @return
  */
 void Oled_Task(void *pvParameters);

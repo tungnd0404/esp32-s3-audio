@@ -9,6 +9,7 @@
 #include "driver/gpio.h"
 #include "esp_err.h"
 #include "std_types.h"
+#include "spi.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -19,9 +20,8 @@
 #define VS1053_DCS_PIN      26    /* Chip select cho dữ liệu SDI (XDCS) */
 #define VS1053_DREQ_PIN     27    /* Data request - chip kéo cao khi sẵn sàng nhận lệnh/data */
 #define VS1053_RESET_PIN    32    /* Reset phần cứng, tích cực mức thấp */
-#define VS1053_MOSI_PIN     23    /* SPI MOSI dùng chung cho toàn bộ SPI2_HOST */
-#define VS1053_MISO_PIN     19    /* SPI MISO dùng chung cho toàn bộ SPI2_HOST */
-#define VS1053_SCLK_PIN     18    /* SPI SCLK dùng chung cho toàn bộ SPI2_HOST */
+/* Chân MOSI/MISO/SCLK không còn khai báo ở đây - dùng chung cho cả SPI_HOST_ID (không riêng
+   VS1053), xem SPI_MOSI_PIN/MISO_PIN/SCLK_PIN trong spi.h */
 
 /* --- Địa chỉ thanh ghi SCI (Serial Control Interface) - theo datasheet VS1053b --- */
 #define SCI_MODE            0x00U
@@ -97,14 +97,18 @@ esp_err_t vs1053_reset(vs1053_handle_t *pDev);
 
 /**
  * @brief vs1053_init
- * Khởi tạo đầy đủ 1 lần: cấu hình GPIO, reset phần cứng (vs1053_reset), khởi tạo SPI bus ở
- * tốc độ thấp (an toàn cho lúc chip chưa ổn định clock), kiểm tra kết nối (vs1053_test_comm),
- * cấu hình clock/audio/mode/volume mặc định, rồi mới nâng tốc độ SPI lên tốc độ chạy bình
- * thường. CHỈ được gọi đúng 1 lần (spi_bus_initialize() bên trong sẽ lỗi nếu gọi lại lần 2).
+ * Khởi tạo đầy đủ 1 lần: cấu hình GPIO, reset phần cứng (vs1053_reset), add VS1053 làm 1 SPI
+ * device trên SPI_HOST_ID ở tốc độ thấp (an toàn cho lúc chip chưa ổn định clock), kiểm tra
+ * kết nối (vs1053_test_comm), cấu hình clock/audio/mode/volume mặc định, rồi mới nâng tốc độ
+ * SPI lên tốc độ chạy bình thường. YÊU CẦU Spi_Init() (spi.c) đã được gọi thành công từ trước
+ * (thường trong app_main(), trước khi tạo Mp3_Task) - hàm này không tự khởi tạo bus, chỉ add
+ * device của riêng nó lên bus đã có sẵn (xem spi.h để biết lý do tách ra). CHỈ nên gọi đúng
+ * 1 lần cho cùng 1 pDev (gọi lại sẽ add thêm 1 device SPI mới, rò rỉ handle cũ).
  * @param pDev: con trỏ device VS1053, các field pin PHẢI được gán giá trị thật của board
  *        TRƯỚC khi gọi (xem VS1053_CS_PIN/VS1053_DCS_PIN/VS1053_DREQ_PIN/VS1053_RESET_PIN)
- * @return ESP_OK nếu khởi tạo thành công, mã lỗi esp_err_t khác nếu SPI bus lỗi hoặc không
- *         phát hiện được VS1053 (DREQ không lên cao / test comm thất bại)
+ * @return ESP_OK nếu khởi tạo thành công, mã lỗi esp_err_t khác nếu add device lên SPI bus lỗi
+ *         (vd Spi_Init() chưa được gọi) hoặc không phát hiện được VS1053 (DREQ không lên
+ *         cao / test comm thất bại)
  */
 esp_err_t vs1053_init(vs1053_handle_t *pDev);
 

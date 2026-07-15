@@ -57,24 +57,18 @@ static inline void delay_ms(uint32_t u32Ms)
 
 /**
  * @brief spi_init
- * Khởi tạo SPI bus (SPI2_HOST) dùng chung cho toàn hệ thống và add VS1053 làm 1 SPI device
- * trên bus đó, tốc độ ban đầu VS1053_SPI_INIT_CLOCK_HZ (an toàn cho lúc chip chưa nhân
- * clock). CHỈ được gọi đúng 1 lần từ vs1053_init() - spi_bus_initialize() sẽ trả lỗi nếu bus
- * đã được khởi tạo từ trước.
+ * Add VS1053 làm 1 SPI device trên SPI_HOST_ID (xem spi.h), tốc độ ban đầu
+ * VS1053_SPI_INIT_CLOCK_HZ (an toàn cho lúc chip chưa nhân clock). KHÔNG tự khởi tạo bus -
+ * Spi_Init() (spi.c) PHẢI được gọi thành công từ trước (app_main(), trước khi tạo Mp3_Task)
+ * vì bus là hạ tầng dùng chung, không thuộc riêng VS1053 (xem lý do tách trong spi.h - sau
+ * này device SPI khác chỉ cần tự add lên cùng bus này, không cần khởi tạo lại). CHỈ được gọi
+ * đúng 1 lần từ vs1053_init().
  * @param pDev: con trỏ device VS1053, ghi kết quả handle vào pDev->spi_handle nếu thành công
- * @return ESP_OK nếu khởi tạo bus + add device thành công, mã lỗi esp_err_t khác nếu thất bại
+ * @return ESP_OK nếu add device thành công, mã lỗi esp_err_t khác nếu thất bại (vd bus chưa
+ *         được Spi_Init())
  */
 static esp_err_t spi_init(vs1053_handle_t *pDev)
 {
-    spi_bus_config_t lBusCfg = {
-        .mosi_io_num = VS1053_MOSI_PIN,
-        .miso_io_num = VS1053_MISO_PIN,
-        .sclk_io_num = VS1053_SCLK_PIN,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = VS1053_CHUNK_SIZE
-    };
-
     spi_device_interface_config_t lDevCfg = {
         .clock_speed_hz = VS1053_SPI_INIT_CLOCK_HZ,
         .mode = 0,                         /* SPI mode 0 */
@@ -83,13 +77,7 @@ static esp_err_t spi_init(vs1053_handle_t *pDev)
         .flags = SPI_DEVICE_HALFDUPLEX
     };
 
-    esp_err_t lRet = spi_bus_initialize(SPI2_HOST, &lBusCfg, SPI_DMA_CH_AUTO);
-    if (lRet != ESP_OK)
-    {
-        return lRet;
-    }
-
-    return spi_bus_add_device(SPI2_HOST, &lDevCfg, &pDev->spi_handle);
+    return spi_bus_add_device(SPI_HOST_ID, &lDevCfg, &pDev->spi_handle);
 }
 
 /* ===================================================
@@ -194,7 +182,8 @@ esp_err_t vs1053_reset(vs1053_handle_t *pDev)
     delay_ms(VS1053_RESET_DELAY_MS);
 
     /* Sau khi thả RESET, chờ DREQ lên cao mới coi là chip đã sẵn sàng nhận lệnh SCI đầu
-       tiên (chưa có SPI bus lúc này - vs1053_init() gọi spi_init() ngay sau hàm này) */
+       tiên (chưa add VS1053 làm SPI device lúc này - vs1053_init() gọi spi_init() ngay sau
+       hàm này để add device, bus SPI_HOST_ID thì đã có sẵn từ trước, xem Spi_Init()) */
     vs1053_wait_dreq(pDev);
     return ESP_OK;
 }
@@ -220,7 +209,7 @@ esp_err_t vs1053_init(vs1053_handle_t *pDev)
        đáng tin cậy */
     vs1053_reset(pDev);
 
-    /* Khởi tạo SPI bus + add VS1053 làm device (tốc độ thấp, an toàn) */
+    /* Add VS1053 làm SPI device trên bus đã có sẵn (tốc độ thấp, an toàn) - xem spi_init() */
     esp_err_t lRet = spi_init(pDev);
     if (lRet != ESP_OK)
     {
@@ -272,7 +261,7 @@ esp_err_t vs1053_init(vs1053_handle_t *pDev)
         ESP_LOGW(TAG, "spi_bus_remove_device failed: %s", esp_err_to_name(lRemoveRet));
     }
 
-    esp_err_t lAddRet = spi_bus_add_device(SPI2_HOST, &lDevCfg, &pDev->spi_handle);
+    esp_err_t lAddRet = spi_bus_add_device(SPI_HOST_ID, &lDevCfg, &pDev->spi_handle);
     if (lAddRet != ESP_OK)
     {
         /* Không nâng được tốc độ SPI -> pDev->spi_handle không còn hợp lệ để dùng tiếp,

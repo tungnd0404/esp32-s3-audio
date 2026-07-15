@@ -59,9 +59,6 @@ extern TaskHandle_t xSdTaskHandle;
    dùng chung cho menu hiển thị (xem menu.c) */
 extern Sdcard_SongInfoType_s gaSongNameList[SDCARD_MAX_SONGS];
 
-/* Tổng số bài hát tìm thấy trên thẻ nhớ */
-extern uint16_t gu16SongCount;
-
 /* Hàng đợi lệnh dùng chung tới Sdcard_Task (phần tử kiểu Srm_Message_s), do Sdcard_Init()
    tạo (Sdcard_Task là owner của thẻ SD - cả double buffer animation lẫn dữ liệu mp3 thô,
    nhận SDCARD_CMD_GET_SINGLE_FRAME qua Srm_SdcardGetSingleFrame(), xem srm.h và
@@ -109,7 +106,7 @@ void Sdcard_ReadDbFile(void);
 /**
  * @brief Sdcard_GetSongByIndex
  * Đọc 1 bản ghi trong file database "/sdcard/songs.db" theo chỉ số
- * @param index: chỉ số bài hát cần lấy (0..gu16SongCount-1)
+ * @param index: chỉ số bài hát cần lấy (0..gsPlayerContext.totalSong-1)
  * @param pOut: struct nhận thông tin bài hát
  * @return E_OK nếu lấy thành công, E_NOT_OK nếu lỗi (index ngoài phạm vi, không mở được file...)
  */

@@ -10,6 +10,7 @@
 #include "sync_frame.h"
 #include "sdcard.h"
 #include "srm.h"
+#include "i2c.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -36,6 +37,16 @@
 
 /* Số request tối đa có thể chờ xử lý trong xOledCommandQueue cùng lúc */
 #define OLED_COMMAND_QUEUE_LENGTH   4U
+
+/* Thời gian hiển thị "SD Card Error!"/"No songs found" trên màn hình lúc boot (nếu có),
+   trước khi vẽ đè menu lên - giữ nguyên giá trị của bản app_main cũ */
+#define OLED_BOOT_STATUS_DISPLAY_MS         2000U
+
+/* Thời gian tối đa Oled_Task chờ Sdcard_Task báo trạng thái mount/quét thẻ SD lúc boot (xem
+   Srm_OledNotifyBootStatus, srm.c) trước khi vẽ menu lần đầu - đủ rộng cho trường hợp thẻ SD
+   chậm/nhiều bài hát, nhưng Oled_Task luôn thoát chờ NGAY khi nhận được thông báo (không phải
+   lúc nào cũng đợi hết khoảng này) vì Sdcard_Task luôn gửi đúng 1 lần dù mount OK hay lỗi */
+#define OLED_BOOT_STATUS_WAIT_MS            5000U
 
 /* ===================================================
  *  GLOBAL VARIABLES
@@ -87,19 +98,31 @@ static void Oled_DrawFrame(SSD1306_t *dev, uint8_t *au8Frame)
  * @brief Oled_HandleCommand
  * Xử lý 1 request nhận được từ xOledCommandQueue (xem srm.h - kiến trúc Owner Task), luôn
  * trả lời qua Srm_Reply() dù cmdId có hợp lệ hay không (bên gửi đang chờ, không trả lời thì
- * họ sẽ phải đợi hết timeout mới coi là lỗi). Hiện CHƯA có case nào - chưa có lệnh
- * (Srm_CommandType_e) nào owner bởi Oled_Task, chỉ dựng sẵn khung xử lý (xem giải thích ở
- * khai báo extern xOledCommandQueue trong oled.h).
+ * họ sẽ phải đợi hết timeout mới coi là lỗi) - riêng OLED_CMD_SHOW_STATUS là fire-and-forget
+ * (responseQueue NULL, xem Srm_OledNotifyBootStatus trong srm.c) nên Srm_Reply() ở đó chỉ để
+ * đúng khuôn mẫu, không ai thực sự nhận được.
  * @param dev: con trỏ device SSD1306 (đã Oled_Task khởi tạo)
  * @param pRequest: request nhận được từ xOledCommandQueue
  * @return
  */
 static void Oled_HandleCommand(SSD1306_t *dev, const Srm_Message_s *pRequest)
 {
-    (void)dev;
-
     switch ((Srm_CommandType_e)pRequest->cmdId)
     {
+        case OLED_CMD_SHOW_STATUS:
+            /* Fire-and-forget (xem Srm_OledNotifyBootStatus, srm.c) - responseQueue luôn NULL
+               nên Srm_Reply() bên dưới tự bỏ qua an toàn, chỉ gọi cho đúng khuôn mẫu chung */
+            if (pRequest->payload != OLED_BOOT_STATUS_OK)
+            {
+                ssd1306_clear_screen(dev, false);
+                ssd1306_display_text(dev, 3,
+                    (pRequest->payload == OLED_BOOT_STATUS_SD_ERROR) ? "SD Card Error!" : "No songs found",
+                    14, false);
+                vTaskDelay(pdMS_TO_TICKS(OLED_BOOT_STATUS_DISPLAY_MS));
+            }
+            Srm_Reply(pRequest, (uint32_t)E_OK);
+            break;
+
         default:
             /* cmdId lạ (chưa định nghĩa xử lý cho Oled_Task) -> vẫn trả lời E_NOT_OK để bên
                gửi không phải chờ hết timeout, tránh trường hợp SRM_CMD_INVALID lọt qua
@@ -224,14 +247,19 @@ static bool Oled_DrawPauseIcon(SSD1306_t *dev, uint32_t *pu32NotifyValue)
 
 /**
  * @brief Oled_Init
- * Khởi tạo màn hình OLED (I2C + SSD1306), tạo xOledCommandQueue để các module khác (nếu sau
- * này có) gửi lệnh vào. Gọi trước khi tạo Oled_Task.
+ * Add SSD1306 làm 1 I2C device trên I2C_PORT_NUM (xem i2c.h) rồi khởi tạo màn hình, tạo
+ * xOledCommandQueue để các module khác (nếu sau này có) gửi lệnh vào. KHÔNG tự khởi tạo bus -
+ * I2c_Init() (i2c.c) PHẢI được gọi thành công từ trước (app_main(), trước khi tạo Oled_Task)
+ * vì bus là hạ tầng dùng chung, không thuộc riêng SSD1306 (cùng khuôn mẫu tách Spi_Init() ra
+ * khỏi vs1053_init(), xem spi.h/vs1053.c - sau này device I2C khác chỉ cần tự add lên cùng
+ * bus này, không cần khởi tạo lại). Gọi bởi chính Oled_Task lúc khởi động.
  * @param dev: con trỏ device SSD1306
  * @return
  */
 void Oled_Init(SSD1306_t *dev)
 {
-    i2c_master_init(dev, CONFIG_SDA_GPIO, CONFIG_SCL_GPIO, CONFIG_RESET_GPIO);
+    dev->_i2c_bus_handle = gI2cBusHandle;
+    i2c_device_add(dev, I2C_PORT_NUM, CONFIG_RESET_GPIO, I2C_ADDRESS);
     ssd1306_init(dev, CONFIG_WIDTH, CONFIG_HEIGHT);
     xOledCommandQueue = xQueueCreate(OLED_COMMAND_QUEUE_LENGTH, sizeof(Srm_Message_s));
 }
@@ -265,20 +293,40 @@ void Oled_Init(SSD1306_t *dev)
  * tiếp theo). lbHasPendingNotify = true báo cho vòng lặp biết: bỏ qua bước chờ, xử lý ngay
  * lu32button_evt đang có sẵn ở vòng lặp kế tiếp.
  *
- * @param pvParameters: con trỏ SSD1306_t* của màn hình, truyền vào lúc tạo task
+ * @param pvParameters: không dùng, luôn truyền NULL lúc tạo task
  * @return không bao giờ return (vòng lặp vô hạn, đúng chuẩn 1 FreeRTOS task)
  */
 void Oled_Task(void *pvParameters)
 {
-    /* pvParameters được audio.c truyền vào lúc tạo task, thực chất là &dev (SSD1306_t)
-       khai báo global bên main -> ép kiểu lại để dùng xuyên suốt task */
-    SSD1306_t *dev = (SSD1306_t *)pvParameters;
+    (void)pvParameters;
+
+    /* Device SSD1306 - biến local của task này, không cần chia sẻ ra ngoài vì Oled_Task là
+       nơi DUY NHẤT được đụng vào màn hình (kiến trúc Owner Task), cùng khuôn mẫu
+       lDeviceInfo trong Mp3_Task (mp3.c) */
+    SSD1306_t lDev;
+    /* Con trỏ dùng xuyên suốt phần còn lại của task, tránh phải sửa lại toàn bộ lời gọi
+       Oled_PlayAnimation(dev, ...)/Menu_Draw(dev,...) bên dưới */
+    SSD1306_t *dev = &lDev;
     /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
        (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
     uint32_t lu32button_evt;
     /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32button_evt đã có sẵn
        1 giá trị mới cần xử lý ngay (do Oled_PlayAnimation vừa trả về) */
     bool lbHasPendingNotify = false;
+
+    Oled_Init(dev);
+
+    /* Chờ đúng 1 lần lúc boot xem Sdcard_Task có báo lỗi mount/không tìm thấy bài hát nào
+       không (xem Srm_OledNotifyBootStatus, srm.c), hiển thị vài giây nếu có trước khi vẽ
+       menu lần đầu. Nhận thẳng qua xQueueReceive (không qua Oled_ServicePendingCommand) vì
+       hàm đó chỉ được gọi trong lúc Oled_PlayAnimation() - lúc này task còn chưa vào tới vòng
+       lặp chính. Timeout hết hạn (Sdcard_Task chưa kịp gửi) thì vẫn vẽ menu bình thường, chỉ
+       mất phần cảnh báo lỗi lúc boot. */
+    Srm_Message_s lBootStatusMsg;
+    if (xQueueReceive(xOledCommandQueue, &lBootStatusMsg, pdMS_TO_TICKS(OLED_BOOT_STATUS_WAIT_MS)) == pdTRUE)
+    {
+        Oled_HandleCommand(dev, &lBootStatusMsg);
+    }
 
     /* Vẽ menu lần đầu khi khởi động, trước khi vào vòng lặp chính */
     Menu_Draw(dev);

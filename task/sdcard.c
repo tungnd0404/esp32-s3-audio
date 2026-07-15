@@ -17,6 +17,7 @@
 #include "ring_buffer.h"
 #include "mp3.h"
 #include "srm.h"
+#include "oled.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -49,9 +50,6 @@ TaskHandle_t xSdTaskHandle = NULL;
 
 /* Danh sách tên bài hát trong RAM, dùng cho menu hiển thị */
 Sdcard_SongInfoType_s gaSongNameList[SDCARD_MAX_SONGS];
-
-/* Tổng số bài hát tìm thấy trên thẻ nhớ */
-uint16_t gu16SongCount = 0;
 
 /* Hàng đợi lệnh dùng chung tới Sdcard_Task, tạo trong Sdcard_Init() vì Sdcard_Task là owner
    dữ liệu double buffer animation (xem driver/buffer/double_buffer.c) */
@@ -391,7 +389,7 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
     }
 
     /* Duyệt từng entry trong thư mục cho tới khi hết file hoặc đầy gaSongNameList */
-    while (((pEntry = readdir(pDir)) != NULL) && (gu16SongCount < SDCARD_MAX_SONGS))
+    while (((pEntry = readdir(pDir)) != NULL) && (gsPlayerContext.totalSong < SDCARD_MAX_SONGS))
     {
         char lName[64];
         char lMp3Path[128];
@@ -428,19 +426,20 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
         fwrite(&lRecord, sizeof(Sdcard_SongDbType_s), 1, pDb);
 
         /* Lưu song song vào RAM để menu hiển thị, không cần đọc lại file mỗi lần vẽ */
-        snprintf(gaSongNameList[gu16SongCount].songName, sizeof(gaSongNameList[gu16SongCount].songName), "%s", lName);
+        snprintf(gaSongNameList[gsPlayerContext.totalSong].songName,
+                 sizeof(gaSongNameList[gsPlayerContext.totalSong].songName), "%s", lName);
 
         #if defined DEVELOPER_CONFIGURATION
             printf("Added: %s\n", lName);
         #endif
 
-        gu16SongCount++;
+        gsPlayerContext.totalSong++;
     }
 
     fclose(pDb);
     closedir(pDir);
 
-    printf("Total songs: %d\n", gu16SongCount);
+    printf("Total songs: %u\n", (unsigned int)gsPlayerContext.totalSong);
 }
 
 /**
@@ -478,7 +477,7 @@ void Sdcard_ReadDbFile(void)
 /**
  * @brief Sdcard_GetSongByIndex
  * Đọc 1 bản ghi trong file database "/sdcard/songs.db" theo chỉ số
- * @param index: chỉ số bài hát cần lấy (0..gu16SongCount-1)
+ * @param index: chỉ số bài hát cần lấy (0..gsPlayerContext.totalSong-1)
  * @param pOut: struct nhận thông tin bài hát
  * @return E_OK nếu lấy thành công, E_NOT_OK nếu lỗi (index ngoài phạm vi, không mở được file...)
  */
@@ -487,7 +486,7 @@ Std_ReturnType Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
     FILE *pDb;
     long lOffset;
 
-    if ((index >= gu16SongCount) || (pOut == NULL))
+    if ((index >= gsPlayerContext.totalSong) || (pOut == NULL))
     {
         return E_NOT_OK;
     }
@@ -548,17 +547,51 @@ Std_ReturnType Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
  * mất (thay bằng giá trị chờ tiếp theo). lbHasPendingNotify = true báo cho vòng lặp biết:
  * bỏ qua bước chờ, xử lý ngay lu32button_evt đang có sẵn ở vòng lặp kế tiếp.
  *
+ * Mount + quét thẻ SD (Sdcard_Mount/Sdcard_ScanAndCreateDb/Sdcard_ReadDbFile) cũng chạy ngay
+ * lúc khởi động task này - trước đây app_main làm việc này TRƯỚC KHI tạo task nào (đồng bộ,
+ * chặn cả hệ thống), giờ chuyển vào đây cùng khuôn mẫu Mp3_Task tự gọi vs1053_init() lúc
+ * khởi động (xem mp3.c). Kết quả báo cho Oled_Task qua Srm_OledNotifyBootStatus() (xem srm.c)
+ * để hiển thị lỗi lên màn hình nếu cần - Sdcard_Task không được phép tự vẽ lên SSD1306
+ * (Oled_Task mới là owner, xem kiến trúc Owner Task trong srm.h).
+ *
  * @param pvParameters
  * @return không bao giờ return (vòng lặp vô hạn, đúng chuẩn 1 FreeRTOS task)
  */
 void Sdcard_Task(void *pvParameters)
 {
+    (void)pvParameters;
+
     /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
        (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
     uint32_t lu32button_evt;
     /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32button_evt đã có sẵn
        1 giá trị mới cần xử lý ngay (do Sdcard_LoadSong vừa trả về) */
     bool lbHasPendingNotify = false;
+
+    /* Mount + quét thẻ SD lúc khởi động - chỉ scan/đọc DB khi mount thành công, mount fail
+       thì "/sdcard" không truy cập được, gọi tiếp cũng chỉ tự thất bại vô ích
+       (Sdcard_ScanAndCreateDb tự log "Cannot open dir" rồi return, không crash) */
+    esp_err_t lMountRet = Sdcard_Mount();
+    if (lMountRet == ESP_OK)
+    {
+        Sdcard_ScanAndCreateDb("/sdcard");
+        Sdcard_ReadDbFile();
+    }
+
+    /* Báo Oled_Task trạng thái mount/quét (OK/lỗi mount/không có bài hát) để hiển thị lỗi lên
+       màn hình nếu cần, trước khi Oled_Task vẽ menu lần đầu (xem Oled_Task, oled.c) */
+    if (lMountRet != ESP_OK)
+    {
+        Srm_OledNotifyBootStatus(OLED_BOOT_STATUS_SD_ERROR);
+    }
+    else if (gsPlayerContext.totalSong == 0)
+    {
+        Srm_OledNotifyBootStatus(OLED_BOOT_STATUS_NO_SONGS);
+    }
+    else
+    {
+        Srm_OledNotifyBootStatus(OLED_BOOT_STATUS_OK);
+    }
 
     /* Khởi tạo double buffer trước khi dùng tới DoubleBuffer_LoadAll()/DoubleBuffer_GetFrame() */
     DoubleBuffer_Init();

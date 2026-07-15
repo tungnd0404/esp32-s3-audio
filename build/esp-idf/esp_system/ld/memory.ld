@@ -24,7 +24,7 @@
 
  * Automatically generated file. DO NOT EDIT.
 
- * Espressif IoT Development Framework (ESP-IDF) 5.4.4 Configuration Header
+ * Espressif IoT Development Framework (ESP-IDF) 5.5.1 Configuration Header
 
  */
        
@@ -39,7 +39,6 @@
 
  */
 /* CPU instruction prefetch padding size for flash mmap scenario */
-/* Copy from esp_secure_boot.h */
 /*
 
  * PMP region granularity size

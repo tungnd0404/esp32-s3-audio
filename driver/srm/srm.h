@@ -29,9 +29,11 @@
 
 /* --- Lệnh cho tài nguyên VS1053 (owner: Mp3_Task, xem mp3.h/mp3.c) --- */
 /* --- Lệnh cho tài nguyên double buffer animation (owner: Sdcard_Task, xem task/sdcard.c) --- */
+/* --- Lệnh cho tài nguyên SSD1306 (owner: Oled_Task, xem task/oled.c) --- */
 typedef enum {
     MP3_CMD_GET_DECODE_TIME,
     SDCARD_CMD_GET_SINGLE_FRAME,
+    OLED_CMD_SHOW_STATUS,
 
     /* Luôn đặt cuối cùng - không phải lệnh thật, dùng để validate cmdId nhận được ở phía
        owner (Mp3_HandleCommand/Sdcard_HandleCommand) có hợp lệ hay không */
@@ -137,5 +139,20 @@ Std_ReturnType Srm_Mp3GetDecodeTime(uint16_t *pDecodeTimeSec, TickType_t timeout
  *         (không nạp được frame, vd lỗi đọc thẻ SD)
  */
 Std_ReturnType Srm_SdcardGetSingleFrame(uint32_t frameIndex, uint8_t *pOutFrame, TickType_t timeoutTicks);
+
+/**
+ * @brief Srm_OledNotifyBootStatus
+ * Báo Oled_Task trạng thái mount/quét thẻ SD ngay lúc boot (owner: Oled_Task, xem
+ * task/oled.c) - giá trị statusCode là OLED_BOOT_STATUS_OK/SD_ERROR/NO_SONGS (xem oled.h).
+ * Chỉ Sdcard_Task gọi đúng 1 lần lúc khởi động, ngay sau khi Sdcard_Mount()/
+ * Sdcard_ScanAndCreateDb() xong. KHÔNG chờ phản hồi (fire-and-forget, không qua
+ * Srm_SendCommand) - Oled_Task tự dừng lại chờ đúng 1 lần ở đầu Oled_Task để nhận thông báo
+ * này trước khi vẽ menu lần đầu, xem Oled_Task. Tự đợi (poll, tối đa vài trăm ms) nếu
+ * xOledCommandQueue chưa được tạo - Sdcard_Task (Core 1) và Oled_Task (Core 0) khởi động
+ * song song, không đảm bảo Oled_Init() đã chạy xong trước khi Sdcard_Task quét xong thẻ SD.
+ * @param statusCode: OLED_BOOT_STATUS_OK/SD_ERROR/NO_SONGS (xem oled.h)
+ * @return
+ */
+void Srm_OledNotifyBootStatus(uint32_t statusCode);
 
 #endif /* SRM_H */

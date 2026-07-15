@@ -97,7 +97,7 @@ static Std_ReturnType DoubleBuffer_LoadInternal(uint8_t au8Buffer[][FRAME_SIZE],
         return E_NOT_OK;
     }
 
-    /* Chỉ cập nhật *pu32Start/*pu32Count cùng lúc, và chỉ khi chắc chắn nạp thành công ít
+    /* Chỉ cập nhật *pu32Start *pu32Count cùng lúc, và chỉ khi chắc chắn nạp thành công ít
        nhất 1 frame - tránh để lại cặp (start, count) không nhất quán nếu hàm trả về E_NOT_OK
        sau khi *pu32Start đã bị ghi đè */
     *pu32Start = index;

@@ -1,2 +1,2 @@
-source D:/tungnd/audio/build/bootloader/gdbinit/symbols
-source D:/tungnd/audio/build/bootloader/gdbinit/connect
+source E:/project/Audio/build/bootloader/gdbinit/symbols
+source E:/project/Audio/build/bootloader/gdbinit/connect

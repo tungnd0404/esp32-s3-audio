@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
+#include "esp_log.h"
 #include "sdcard.h"
 #include "oled.h"
 #include "menu.h"
@@ -13,6 +14,8 @@
 #include "player_manager.h"
 #include "srm.h"
 #include "mp3.h"
+#include "spi.h"
+#include "i2c.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -52,67 +55,32 @@
 #define AUDIO_TASK_PRIORITY_OLED     4U
 
 /* ===================================================
+ *  LOCAL VARIABLES
+ * =================================================== */
+
+static const char *TAG = "AUDIO";
+
+/* ===================================================
  *  GLOBAL FUNCTION
  * =================================================== */
 
 /**
  * @brief app_main
  * Điểm vào chương trình (entry point ESP-IDF): khởi tạo tuần tự từng module (thứ tự PHẢI
- * đúng như dưới đây - xem comment tại từng bước), mount + quét thẻ SD lấy danh sách bài hát,
- * tạo đủ 4 task chính (Sdcard_Task/Mp3_Task/PlayerManager_Task/Oled_Task), rồi mới bật ngắt
- * nút bấm SAU CÙNG (xem lý do quan trọng ở bước Button_Init() bên dưới). Bản thân app_main
- * chạy trên 1 task hệ thống riêng của ESP-IDF (không phải 1 trong 4 task kể trên).
+ * đúng như dưới đây - xem comment tại từng bước), tạo đủ 4 task chính (Sdcard_Task/Mp3_Task/
+ * PlayerManager_Task/Oled_Task) - mount/quét thẻ SD và khởi tạo màn hình SSD1306 nay do
+ * chính Sdcard_Task/Oled_Task tự làm lúc khởi động, không còn ở đây (xem Sdcard_Task/oled.c) -
+ * rồi mới bật ngắt nút bấm SAU CÙNG (xem lý do quan trọng ở bước Button_Init() bên dưới).
+ * Bản thân app_main chạy trên 1 task hệ thống riêng của ESP-IDF (không phải 1 trong 4 task
+ * kể trên).
  * @param
  * @return
  */
 void app_main(void)
 {
-    /* Device SSD1306 dùng chung cho toàn hệ thống - CỐ Ý để local (không phải global) vì chỉ
-       audio.c cần đụng tới (Oled_Task nhận địa chỉ qua pvParameters, không qua extern global
-       theo tên như gsPlayerContext). An toàn vì app_main() KHÔNG BAO GIỜ return (kết thúc
-       bằng vTaskDelay(portMAX_DELAY) vô hạn ở cuối hàm) - stack frame của app_main, và do đó
-       địa chỉ &dev, còn sống suốt vòng đời thiết bị. NẾU SAU NÀY sửa app_main để return sớm ở
-       bất kỳ nhánh nào (vd early-return khi lỗi nghiêm trọng), &dev mà Oled_Task đang giữ sẽ
-       thành dangling pointer - phải đưa dev trở lại thành global (hoặc static) trước khi làm
-       vậy. */
-    SSD1306_t dev;
-
     /* srm init - phải gọi đầu tiên, trước khi tạo bất kỳ task nào (tạo mutex bảo vệ
        registry lúc còn đơn luồng, xem Srm_Init() trong srm.c) */
     Srm_Init();
-
-    /* oled init - đặt trước các bước thao tác thẻ SD để có thể hiển thị lỗi ngay lên màn
-       hình nếu mount/scan thẻ SD thất bại, thay vì chỉ log ra UART console (trước đây hệ
-       thống boot "thành công" trong im lặng dù không mount được thẻ/không có bài hát nào) */
-    Oled_Init(&dev);
-
-    /* Mount thẻ SD, quét toàn bộ bài hát hợp lệ (có đủ cặp .mp3 + .bin) vào database, rồi in
-       ra console để debug. Chỉ quét/đọc DB khi mount thành công - mount fail thì "/sdcard"
-       không truy cập được, gọi tiếp cũng chỉ tự thất bại vô ích (Sdcard_ScanAndCreateDb tự
-       log "Cannot open dir" rồi return, không crash, nhưng không cần thiết) */
-    esp_err_t lRet = Sdcard_Mount();
-    if (lRet == ESP_OK)
-    {
-        Sdcard_ScanAndCreateDb("/sdcard");
-        Sdcard_ReadDbFile();
-    }
-
-    /* Thẻ SD lỗi hoặc quét xong nhưng không tìm thấy bài hát hợp lệ nào (thiếu file .bin
-       đi kèm...) -> báo rõ cho người dùng biết trên OLED, giữ hiển thị vài giây trước khi
-       Oled_Task khởi động và vẽ đè màn hình menu (rỗng) lên trên */
-    if ((lRet != ESP_OK) || (gu16SongCount == 0))
-    {
-        ssd1306_clear_screen(&dev, false);
-        if (lRet != ESP_OK)
-        {
-            ssd1306_display_text(&dev, 3, "SD Card Error!", 14, false);
-        }
-        else
-        {
-            ssd1306_display_text(&dev, 3, "No songs found", 14, false);
-        }
-        vTaskDelay(pdMS_TO_TICKS(2000));
-    }
 
     /* player manager init - chỉ set state ban đầu (gsPlayerContext), CHƯA tạo task, xem
        PlayerManager_Init() trong player_manager.c */
@@ -126,10 +94,35 @@ void app_main(void)
        Oled_Task để gửi SDCARD_CMD_GET_SINGLE_FRAME qua SRM mỗi khi cần 1 frame animation) */
     Sdcard_Init();
 
-    /* Tạo đủ cả 4 task chính TRƯỚC KHI bật ngắt nút bấm (xem Button_Init() ở cuối hàm) -
-       pvParameters chỉ truyền &dev cho Oled_Task (owner thật sự của màn hình); Sdcard_Task/
-       Mp3_Task/PlayerManager_Task không đụng gì tới SSD1306 nên truyền NULL, không mượn &dev
-       cho có vì gây hiểu lầm hàm đó cũng dùng màn hình */
+    /* spi init - khởi tạo SPI_HOST_ID đúng 1 lần cho toàn hệ thống, PHẢI gọi trước khi tạo
+       Mp3_Task (vs1053_init() bên trong chỉ add device lên bus có sẵn, không tự khởi tạo bus
+       nữa - xem spi.h để biết lý do tách ra khỏi vs1053.c: sau này device SPI khác chỉ cần tự
+       add lên cùng bus này, không phải sửa lại chỗ khởi tạo bus). Lỗi ở đây không chặn
+       app_main - Mp3_Task vẫn được tạo bình thường, tự phát hiện lỗi qua vs1053_init() trả về
+       khác ESP_OK và tự halt (xem Mp3_Task trong mp3.c), không cần thêm 1 đường xử lý lỗi mới
+       ở đây */
+    if (Spi_Init() != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Spi_Init failed - devices on SPI_HOST_ID (vd VS1053) will not work");
+    }
+
+    /* i2c init - khởi tạo I2C_PORT_NUM đúng 1 lần cho toàn hệ thống, PHẢI gọi trước khi tạo
+       Oled_Task (Oled_Init() bên trong chỉ add device lên bus có sẵn qua i2c_device_add(),
+       không tự khởi tạo bus nữa - cùng lý do tách Spi_Init() ở trên, xem i2c.h). LƯU Ý khác
+       Spi_Init(): thư viện SSD1306 dùng ESP_ERROR_CHECK() nội bộ cho i2c_master_bus_add_device()
+       (driver/ssd1306/ssd1306_i2c_new.c) - nếu I2c_Init() lỗi, Oled_Task add device lên bus
+       NULL sẽ khiến hệ thống reboot ngay, không halt êm như Mp3_Task/vs1053_init(); log ở đây
+       chỉ để thấy nguyên nhân trước khi reboot, không ngăn được crash */
+    if (I2c_Init() != ESP_OK)
+    {
+        ESP_LOGE(TAG, "I2c_Init failed - Oled_Task will crash the system on add device");
+    }
+
+    /* Tạo đủ cả 4 task chính TRƯỚC KHI bật ngắt nút bấm (xem Button_Init() ở cuối hàm).
+       Oled_Task tự khởi tạo màn hình SSD1306 (biến local, xem Oled_Task trong oled.c) và
+       Sdcard_Task tự mount/quét thẻ SD (xem Sdcard_Task trong sdcard.c) ngay lúc khởi động
+       của chính nó, không còn làm ở app_main - 2 task báo nhau qua Srm_OledNotifyBootStatus()
+       (srm.c) nếu mount/quét lỗi, không task nào cần pvParameters riêng nên đều truyền NULL */
     xTaskCreatePinnedToCore(Sdcard_Task, "sdcard_task", AUDIO_TASK_STACK_SIZE, NULL,
                              AUDIO_TASK_PRIORITY_SDCARD, &xSdTaskHandle, AUDIO_TASK_CORE);
 
@@ -139,7 +132,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(PlayerManager_Task, "player_manager_task", AUDIO_TASK_STACK_SIZE, NULL,
                              AUDIO_TASK_PRIORITY_PLAYER, &xPlayerManagerTaskHandle, AUDIO_TASK_CORE);
 
-    xTaskCreatePinnedToCore(Oled_Task, "oled_task", AUDIO_TASK_STACK_SIZE, &dev,
+    xTaskCreatePinnedToCore(Oled_Task, "oled_task", AUDIO_TASK_STACK_SIZE, NULL,
                              AUDIO_TASK_PRIORITY_OLED, &xOledTaskHandle, OLED_TASK_CORE);
 
     /* Button_Init() PHẢI gọi SAU CÙNG, sau khi cả 4 task đã tạo xong: các ISR nút bấm
@@ -154,9 +147,6 @@ void app_main(void)
     Button_Init();
 
     /* Task main (pin core 0, priority ESP_TASK_MAIN_PRIO) đã hoàn thành nhiệm vụ khởi tạo,
-       không còn việc gì để làm - phải nhường CPU (không dùng while(1); rỗng) để task Idle0
-       được chạy và tự "feed" Task Watchdog Timer của chính nó (sdkconfig có
-       CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y), nếu không TWDT sẽ báo lỗi liên tục mỗi
-       CONFIG_ESP_TASK_WDT_TIMEOUT_S giây trong suốt vòng đời thiết bị */
-    vTaskDelay(portMAX_DELAY);
+       không còn việc gì để làm - để hàm return, ESP-IDF sẽ tự vTaskDelete(NULL) task main
+       (xem main_task trong cpu_start.c), giải phóng luôn stack của nó thay vì giữ chết */
 }

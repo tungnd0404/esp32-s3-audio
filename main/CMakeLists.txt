@@ -15,6 +15,8 @@ idf_component_register(
         "../task/mp3.c"
         "../driver/srm/srm.c"
         "../driver/vs1053/vs1053.c"
+        "../driver/spi/spi.c"
+        "../driver/i2c/i2c.c"
 
     INCLUDE_DIRS
         "."
@@ -25,5 +27,7 @@ idf_component_register(
         "../driver/button"
         "../driver/srm"
         "../driver/vs1053"
+        "../driver/spi"
+        "../driver/i2c"
         "../common"
 )
