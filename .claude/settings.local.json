@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(find / -iname \"ringbuf.h\" -not -path \"*/node_modules/*\" 2>/dev/null | head -20)",
-      "Read(//d//**)"
+      "Read(//d//**)",
+      "Bash(awk '{print $2}')"
     ]
   }
 }

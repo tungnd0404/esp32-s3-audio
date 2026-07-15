@@ -52,11 +52,11 @@ void Menu_Draw(SSD1306_t *dev)
 
         if (lu32ItemIndex == lu32Cursor)
         {
-            snprintf(lacLine, sizeof(lacLine), "> %.27s", gaSongList[lu32ItemIndex].songName);
+            snprintf(lacLine, sizeof(lacLine), "> %.27s", gaSongNameList[lu32ItemIndex].songName);
         }
         else
         {
-            snprintf(lacLine, sizeof(lacLine), "  %.27s", gaSongList[lu32ItemIndex].songName);
+            snprintf(lacLine, sizeof(lacLine), "  %.27s", gaSongNameList[lu32ItemIndex].songName);
         }
 
         ssd1306_display_text(dev, lu32Line, lacLine, strlen(lacLine), false);

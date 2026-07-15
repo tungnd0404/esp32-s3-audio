@@ -6,9 +6,9 @@
  * =================================================== */
 
 #include <stdint.h>
-#include <stdbool.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "std_types.h"
 
 /* ===================================================
  *  TYPE DEFINITIONS
@@ -59,7 +59,7 @@ typedef struct {
     /* Mã lệnh, định nghĩa riêng theo từng owner task (Srm_CommandType_e) */
     uint32_t cmdId;
     /* Dữ liệu vô hướng nhỏ đi kèm: tham số của lệnh (khi kind == COMMAND) hoặc kết quả trả
-       về (khi kind == DATA) */
+       về - E_OK/E_NOT_OK (khi kind == DATA) */
     uint32_t payload;
     /* Con trỏ dữ liệu lớn hơn đi kèm (khi lệnh cần), NULL nếu không cần - xem giải thích ở
        trên. Chỉ có ý nghĩa khi kind == COMMAND (bên gửi truyền vào); owner ghi thẳng dữ liệu
@@ -96,40 +96,46 @@ void Srm_Init(void);
  * đó (qua con trỏ nhận được trong Srm_Message_s.pData) TRƯỚC KHI gọi hàm này.
  * @param pRequest: request đã nhận (dùng pRequest->responseQueue để gửi trả lời)
  * @param payload: dữ liệu vô hướng trả về (kết quả thành công/thất bại, giá trị đọc được...)
- * @return true nếu gửi trả lời thành công, false nếu pRequest không có responseQueue hoặc
+ * @return E_OK nếu gửi trả lời thành công, E_NOT_OK nếu pRequest không có responseQueue hoặc
  *         gửi thất bại (hàng đợi đầy)
  */
-bool Srm_Reply(const Srm_Message_s *pRequest, uint32_t payload);
+Std_ReturnType Srm_Reply(const Srm_Message_s *pRequest, uint32_t payload);
 
 /* --- API riêng cho từng lệnh, 1 lệnh 1 hàm - xem Srm_CommandType_e để biết đủ danh sách --- */
 
 /**
  * @brief Srm_Mp3GetDecodeTime
  * Hỏi Mp3_Task thời gian đã giải mã (giây) của bài đang phát, đọc từ thanh ghi
- * SCI_DECODE_TIME của VS1053 (owner: Mp3_Task, xem mp3.h/mp3.c).
- * @param ownerQueue: command queue của Mp3_Task (xMp3CommandQueue)
- * @param pDecodeTimeSec: [out] thời gian đã giải mã (giây), chỉ hợp lệ khi hàm trả về true
+ * SCI_DECODE_TIME của VS1053 (owner: Mp3_Task, xem mp3.h/mp3.c). Mp3_Task ghi thẳng giá trị
+ * đọc được vào pData (giống cơ chế pOutFrame của Srm_SdcardGetSingleFrame) rồi mới trả lời,
+ * payload lúc trả lời chỉ còn mang E_OK/E_NOT_OK. Không nhận ownerQueue làm tham số - lệnh
+ * này luôn gửi tới đúng 1 owner cố định (Mp3_Task/xMp3CommandQueue), tự biết bên trong
+ * (xem srm.c), bên gọi không cần và không nên tự chọn queue khác.
+ * @param pDecodeTimeSec: [out] thời gian đã giải mã (giây), chỉ hợp lệ khi hàm trả về E_OK
  * @param timeoutTicks: thời gian tối đa chờ phản hồi
- * @return true nếu nhận được phản hồi trong thời gian chờ, false nếu ownerQueue chưa tồn
- *         tại, SRM hết chỗ đăng ký task mới, command queue đầy, hoặc hết thời gian chờ
+ * @return E_OK nếu nhận được phản hồi E_OK trong thời gian chờ, E_NOT_OK nếu xMp3CommandQueue
+ *         chưa tồn tại, SRM hết chỗ đăng ký task mới, command queue đầy, hết thời gian chờ,
+ *         hoặc Mp3_Task trả lời E_NOT_OK
  */
-bool Srm_Mp3GetDecodeTime(QueueHandle_t ownerQueue, uint16_t *pDecodeTimeSec, TickType_t timeoutTicks);
+Std_ReturnType Srm_Mp3GetDecodeTime(uint16_t *pDecodeTimeSec, TickType_t timeoutTicks);
 
 /**
  * @brief Srm_SdcardGetSingleFrame
  * Xin Sdcard_Task 1 frame animation theo chỉ số (owner: Sdcard_Task, xem task/sdcard.c,
  * driver/buffer/double_buffer.c). Sdcard_Task tự nạp trước/nạp gấp nếu thiếu dữ liệu trong
- * buffer, ghi thẳng dữ liệu frame vào pOutFrame rồi mới trả lời - nhận được true nghĩa là
- * pOutFrame đã có dữ liệu sẵn sàng để vẽ ngay, không cần xử lý gì thêm.
- * @param ownerQueue: command queue của Sdcard_Task (xSdCommandQueue)
+ * buffer, ghi thẳng dữ liệu frame vào pOutFrame rồi mới trả lời - nhận được E_OK nghĩa là
+ * pOutFrame đã có dữ liệu sẵn sàng để vẽ ngay, không cần xử lý gì thêm. Không nhận ownerQueue
+ * làm tham số - lệnh này luôn gửi tới đúng 1 owner cố định (Sdcard_Task/xSdCommandQueue), tự
+ * biết bên trong (xem srm.c).
  * @param frameIndex: chỉ số frame cần lấy
  * @param pOutFrame: buffer đích nhận dữ liệu, kích thước tối thiểu FRAME_SIZE byte (xem
  *        driver/buffer/double_buffer.h), do bên gọi sở hữu và còn sống tới khi hàm return
  * @param timeoutTicks: thời gian tối đa chờ phản hồi
- * @return true nếu lấy thành công (pOutFrame đã có dữ liệu mới), false nếu ownerQueue chưa
- *         tồn tại, SRM hết chỗ đăng ký task mới, command queue đầy, hết thời gian chờ, hoặc
- *         Sdcard_Task trả lời thất bại (không nạp được frame, vd lỗi đọc thẻ SD)
+ * @return E_OK nếu lấy thành công (pOutFrame đã có dữ liệu mới, payload nội bộ là
+ *         E_OK), E_NOT_OK nếu xSdCommandQueue chưa tồn tại, SRM hết chỗ đăng ký task mới,
+ *         command queue đầy, hết thời gian chờ, hoặc Sdcard_Task trả lời E_NOT_OK
+ *         (không nạp được frame, vd lỗi đọc thẻ SD)
  */
-bool Srm_SdcardGetSingleFrame(QueueHandle_t ownerQueue, uint32_t frameIndex, uint8_t *pOutFrame, TickType_t timeoutTicks);
+Std_ReturnType Srm_SdcardGetSingleFrame(uint32_t frameIndex, uint8_t *pOutFrame, TickType_t timeoutTicks);
 
 #endif /* SRM_H */

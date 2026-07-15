@@ -34,12 +34,19 @@
    mất vài-vài chục ms đọc thẻ SD nên timeout để rộng, không phải giá trị chờ bình thường */
 #define OLED_GET_FRAME_TIMEOUT_MS          5000U
 
+/* Số request tối đa có thể chờ xử lý trong xOledCommandQueue cùng lúc */
+#define OLED_COMMAND_QUEUE_LENGTH   4U
+
 /* ===================================================
  *  GLOBAL VARIABLES
  * =================================================== */
 
 /* task handler Oled_Task */
 TaskHandle_t xOledTaskHandle = NULL;
+
+/* Hàng đợi lệnh dùng chung tới Oled_Task, tạo trong Oled_Init() vì Oled_Task là owner - xem
+   giải thích đầy đủ ở khai báo extern trong oled.h */
+QueueHandle_t xOledCommandQueue = NULL;
 
 /* ===================================================
  *  LOCAL TYPE DEFINITIONS
@@ -49,7 +56,12 @@ TaskHandle_t xOledTaskHandle = NULL;
  *  LOCAL VARIABLES
  * =================================================== */
 
-/* Buffer chứa 1 frame animation đọc từ double buffer trước khi vẽ lên màn hình */
+/* Buffer chứa 1 frame animation đọc từ double buffer trước khi vẽ lên màn hình. Để static
+   (thay vì biến local trong Oled_PlayAnimation) là CỐ Ý: chỉ Oled_Task đụng vào buffer này
+   (Srm_SdcardGetSingleFrame() blocking - không có 2 request chồng nhau trong cùng 1 task nên
+   không lo ghi đè lẫn lộn), và nếu để local thì 1024 byte sẽ trừ thẳng vào stack của
+   Oled_Task (chỉ 4096 byte, xem xTaskCreatePinnedToCore trong audio.c) thay vì nằm ở .bss -
+   rủi ro tràn stack, không đáng đánh đổi chỉ để "cục bộ hoá" biến. */
 static uint8_t gau8Frame[FRAME_SIZE];
 
 /* ===================================================
@@ -68,6 +80,52 @@ static void Oled_DrawFrame(SSD1306_t *dev, uint8_t *au8Frame)
     for (uint32_t lu32Page = 0; lu32Page < OLED_PAGE_COUNT; lu32Page++)
     {
         ssd1306_display_image(dev, lu32Page, 0, &au8Frame[lu32Page * OLED_PAGE_WIDTH], OLED_PAGE_WIDTH);
+    }
+}
+
+/**
+ * @brief Oled_HandleCommand
+ * Xử lý 1 request nhận được từ xOledCommandQueue (xem srm.h - kiến trúc Owner Task), luôn
+ * trả lời qua Srm_Reply() dù cmdId có hợp lệ hay không (bên gửi đang chờ, không trả lời thì
+ * họ sẽ phải đợi hết timeout mới coi là lỗi). Hiện CHƯA có case nào - chưa có lệnh
+ * (Srm_CommandType_e) nào owner bởi Oled_Task, chỉ dựng sẵn khung xử lý (xem giải thích ở
+ * khai báo extern xOledCommandQueue trong oled.h).
+ * @param dev: con trỏ device SSD1306 (đã Oled_Task khởi tạo)
+ * @param pRequest: request nhận được từ xOledCommandQueue
+ * @return
+ */
+static void Oled_HandleCommand(SSD1306_t *dev, const Srm_Message_s *pRequest)
+{
+    (void)dev;
+
+    switch ((Srm_CommandType_e)pRequest->cmdId)
+    {
+        default:
+            /* cmdId lạ (chưa định nghĩa xử lý cho Oled_Task) -> vẫn trả lời E_NOT_OK để bên
+               gửi không phải chờ hết timeout, tránh trường hợp SRM_CMD_INVALID lọt qua
+               được lúc gửi */
+            Srm_Reply(pRequest, (uint32_t)E_NOT_OK);
+            break;
+    }
+}
+
+/**
+ * @brief Oled_ServicePendingCommand
+ * Check non-blocking (timeout = 0) xem xOledCommandQueue có request nào đang chờ không, có
+ * thì xử lý ngay. Gọi mỗi vòng lặp trong Oled_PlayAnimation() - cùng khuôn mẫu với
+ * Mp3_ServicePendingCommand() (mp3.c). LƯU Ý: hàm này KHÔNG được gọi khi Oled_Task đang rảnh
+ * (đang chờ notify ở vòng lặp ngoài Oled_Task, xTaskNotifyWait dùng portMAX_DELAY) - lúc đó
+ * request tới xOledCommandQueue sẽ không có ai xử lý cho tới vòng vẽ animation kế tiếp.
+ * @param dev: con trỏ device SSD1306 (đã Oled_Task khởi tạo)
+ * @return
+ */
+static void Oled_ServicePendingCommand(SSD1306_t *dev)
+{
+    Srm_Message_s lRequest;
+
+    if (xQueueReceive(xOledCommandQueue, &lRequest, 0) == pdTRUE)
+    {
+        Oled_HandleCommand(dev, &lRequest);
     }
 }
 
@@ -110,6 +168,10 @@ static bool Oled_PlayAnimation(SSD1306_t *dev, uint32_t *pu32NotifyValue)
             return true;
         }
 
+        /* Tranh thủ trả lời các request đang chờ trong lúc đang chạy vòng lặp này, xem
+           Oled_ServicePendingCommand() */
+        Oled_ServicePendingCommand(dev);
+
         /* Lấy frame_index đồng bộ theo thời gian giải mã mp3 hiện tại */
         lu32FrameIndex = SyncFrame_GetFrameIndex();
 
@@ -124,8 +186,8 @@ static bool Oled_PlayAnimation(SSD1306_t *dev, uint32_t *pu32NotifyValue)
                vào gau8Frame (truyền thẳng làm tham số, không cần đăng ký trước) trước khi
                trả lời, nên chỉ vẽ khi chắc chắn nhận được dữ liệu mới - tránh vẽ dữ liệu
                cũ/rác nếu timeout hay lỗi đọc thẻ SD */
-            if (Srm_SdcardGetSingleFrame(xSdCommandQueue, lu32FrameIndex, gau8Frame,
-                                    pdMS_TO_TICKS(OLED_GET_FRAME_TIMEOUT_MS)) == true)
+            if (Srm_SdcardGetSingleFrame(lu32FrameIndex, gau8Frame,
+                                    pdMS_TO_TICKS(OLED_GET_FRAME_TIMEOUT_MS)) == E_OK)
             {
                 Oled_DrawFrame(dev, gau8Frame);
                 lu32LastDrawnFrameIndex = lu32FrameIndex;
@@ -162,7 +224,8 @@ static bool Oled_DrawPauseIcon(SSD1306_t *dev, uint32_t *pu32NotifyValue)
 
 /**
  * @brief Oled_Init
- * Khởi tạo màn hình OLED (I2C + SSD1306)
+ * Khởi tạo màn hình OLED (I2C + SSD1306), tạo xOledCommandQueue để các module khác (nếu sau
+ * này có) gửi lệnh vào. Gọi trước khi tạo Oled_Task.
  * @param dev: con trỏ device SSD1306
  * @return
  */
@@ -170,6 +233,7 @@ void Oled_Init(SSD1306_t *dev)
 {
     i2c_master_init(dev, CONFIG_SDA_GPIO, CONFIG_SCL_GPIO, CONFIG_RESET_GPIO);
     ssd1306_init(dev, CONFIG_WIDTH, CONFIG_HEIGHT);
+    xOledCommandQueue = xQueueCreate(OLED_COMMAND_QUEUE_LENGTH, sizeof(Srm_Message_s));
 }
 
 /**

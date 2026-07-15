@@ -20,7 +20,7 @@
 /* Kích thước xMp3RingBuffer (byte) - vùng đệm dữ liệu mp3 thô, đọc trước từ thẻ SD bởi
    Sdcard_Task (owner duy nhất của thẻ SD) rồi Mp3_Task rút ra để gửi cho VS1053. 4KB đủ
    đệm trước vài trăm ms nhạc (tuỳ bitrate), trong khi Sdcard_Task nạp lại đầy mỗi ~50ms
-   (xem Sdcard_LoadCurrentSong trong sdcard.c) - dư sức bù tốc độ VS1053 tiêu thụ. */
+   (xem Sdcard_LoadSong trong sdcard.c) - dư sức bù tốc độ VS1053 tiêu thụ. */
 #define MP3_RING_BUFFER_SIZE   4096U
 
 /* ===================================================
@@ -36,7 +36,7 @@ extern QueueHandle_t xMp3CommandQueue;
 
 /* Ring buffer chứa dữ liệu thô của file mp3 bài đang phát, tạo trong Mp3_Init(). Sdcard_Task
    là bên GHI DUY NHẤT (owner của thẻ SD, tự mở file mp3 và nạp liên tục - xem
-   Sdcard_LoadCurrentSong trong sdcard.c); Mp3_Task là bên ĐỌC DUY NHẤT (Mp3_StreamCurrentSong
+   Sdcard_LoadSong trong sdcard.c); Mp3_Task là bên ĐỌC DUY NHẤT (Mp3_StreamSong
    trong mp3.c). Ring buffer FreeRTOS đã tự an toàn cho đúng 1 task ghi + 1 task đọc đồng
    thời, không cần thêm mutex - đây chính là lý do đổi từ việc Mp3_Task tự fopen/fread thẳng
    trên thẻ SD (vi phạm kiến trúc Owner Task, xem srm.h) sang mô hình producer/consumer này. */
@@ -45,7 +45,7 @@ extern RingbufHandle_t xMp3RingBuffer;
 /* true = Sdcard_Task đã đọc hết file mp3 hiện tại (fread trả về 0) và sẽ không ghi thêm gì
    vào xMp3RingBuffer nữa cho tới bài kế tiếp. Mp3_Task dựa vào cờ này để phân biệt "ring
    buffer tạm thời rỗng, đợi Sdcard_Task nạp thêm" (cờ còn false) với "đã phát hết bài, dừng
-   hẳn" (cờ true VÀ ring buffer đã đọc cạn) - xem Mp3_StreamCurrentSong.
+   hẳn" (cờ true VÀ ring buffer đã đọc cạn) - xem Mp3_StreamSong.
    volatile vì được Sdcard_Task ghi và Mp3_Task đọc liên tục trong 2 task khác nhau, ngoài cơ
    chế task notification - cùng lý do gsPlayerContext.playbackState volatile (player_manager.h) */
 extern volatile bool gbMp3StreamEof;

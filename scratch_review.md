@@ -32,7 +32,7 @@ Giao tiếp giữa 4 task **hoàn toàn bằng task notification** (không dùng
 | `driver/button/button.c/h` | ISR GPIO 3 nút, debounce, gửi `Button_EventType_e` | `Button_Init`, 3 ISR | `gau32LastTickTime[]` | `PlayerManager_Task` (nhận notify) | 6 |
 | `task/player_manager.c/h` | State machine trung tâm | `PlayerManager_Init`, `PlayerManager_Task` | `gsPlayerContext` (ghi độc quyền) | `oled.c`/`menu.c`/`sdcard.c`/`mp3.c`/`sync_frame.c` (đọc) | 7 (init), task tạo thứ 3 |
 | `task/mp3.h/c` | Owner VS1053, stream mp3 | `Mp3_Init`, `Mp3_Task` | `gpMp3File`, `xMp3CommandQueue`, `vs1053_handle_t` cục bộ | `player_manager.c` (notify), `sync_frame.c` (SRM) | 8 (init), task tạo thứ 2 |
-| `task/sdcard.c/h` | Quét & nạp DB bài hát, nạp double buffer | `Sdcard_Mount/ScanAndCreateDb/ReadDbFile/GetSongByIndex/Task` | `gaSongList`, `gu16SongCount`, file `songs.db` | `player_manager.c` (totalSong), `menu.c` (hiển thị), `mp3.c` (đọc songPath) | 2-4 (init hàm), task tạo thứ 1 |
+| `task/sdcard.c/h` | Quét & nạp DB bài hát, nạp double buffer | `Sdcard_Mount/ScanAndCreateDb/ReadDbFile/GetSongByIndex/Task` | `gaSongNameList`, `gu16SongCount`, file `songs.db` | `player_manager.c` (totalSong), `menu.c` (hiển thị), `mp3.c` (đọc songPath) | 2-4 (init hàm), task tạo thứ 1 |
 | `task/oled.h/c` | Vẽ OLED (menu + animation) | `Oled_Init`, `Oled_Task` | không state riêng đáng kể | — | 5 (init), task tạo thứ 4 |
 | `driver/ssd1306/menu.c/h` | Vẽ danh sách bài hát, cuộn | `Menu_Draw`, `Menu_UpdateScroll` | `gi32StartIndex` (static) | `oled.c` | — |
 | `driver/buffer/sync_frame.c/h` | Tính frame animation theo decode time | `SyncFrame_Init`, `SyncFrame_GetFrameIndex` | state nội bộ (virtual time) | `oled.c` | — |

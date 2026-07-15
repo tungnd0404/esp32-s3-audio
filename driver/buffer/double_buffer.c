@@ -52,26 +52,26 @@ static uint32_t gu32TotalFrames = 0;
  * @param pu32Start: [out] chỉ số frame đầu tiên nạp được, chỉ ghi khi nạp thành công
  * @param pu32Count: [out] số frame thực tế nạp được, chỉ ghi khi nạp thành công
  * @param index: chỉ số frame bắt đầu cần nạp
- * @return true nếu nạp được ít nhất 1 frame, false nếu lỗi hoặc index đã ngoài phạm vi file
+ * @return E_OK nếu nạp được ít nhất 1 frame, E_NOT_OK nếu lỗi hoặc index đã ngoài phạm vi file
  */
-static bool DoubleBuffer_LoadInternal(uint8_t au8Buffer[][FRAME_SIZE], uint32_t *pu32Start,
-                                       uint32_t *pu32Count, uint32_t index)
+static Std_ReturnType DoubleBuffer_LoadInternal(uint8_t au8Buffer[][FRAME_SIZE], uint32_t *pu32Start,
+                                                 uint32_t *pu32Count, uint32_t index)
 {
     if (gpFrameFile == NULL)
     {
-        return false;
+        return E_NOT_OK;
     }
 
     if (index >= gu32TotalFrames)
     {
-        return false;
+        return E_NOT_OK;
     }
 
     long lOffset = (long)index * FRAME_SIZE;
     if (fseek(gpFrameFile, lOffset, SEEK_SET) != 0)
     {
         ESP_LOGE(TAG, "fseek failed at index %lu", index);
-        return false;
+        return E_NOT_OK;
     }
 
     uint32_t lu32FramesLoaded = 0;
@@ -86,7 +86,7 @@ static bool DoubleBuffer_LoadInternal(uint8_t au8Buffer[][FRAME_SIZE], uint32_t 
         if (lReadBytes != FRAME_SIZE)
         {
             ESP_LOGE(TAG, "fread failed at frame %lu", index + (uint32_t)li);
-            return false;
+            return E_NOT_OK;
         }
 
         lu32FramesLoaded++;
@@ -94,15 +94,15 @@ static bool DoubleBuffer_LoadInternal(uint8_t au8Buffer[][FRAME_SIZE], uint32_t 
 
     if (lu32FramesLoaded == 0U)
     {
-        return false;
+        return E_NOT_OK;
     }
 
     /* Chỉ cập nhật *pu32Start/*pu32Count cùng lúc, và chỉ khi chắc chắn nạp thành công ít
-       nhất 1 frame - tránh để lại cặp (start, count) không nhất quán nếu hàm trả về false
+       nhất 1 frame - tránh để lại cặp (start, count) không nhất quán nếu hàm trả về E_NOT_OK
        sau khi *pu32Start đã bị ghi đè */
     *pu32Start = index;
     *pu32Count = lu32FramesLoaded;
-    return true;
+    return E_OK;
 }
 
 /**
@@ -110,9 +110,9 @@ static bool DoubleBuffer_LoadInternal(uint8_t au8Buffer[][FRAME_SIZE], uint32_t 
  * Chuyển buffer đang phục vụ đọc (gbUsingA) sang buffer còn lại nếu buffer đó đã sẵn sàng
  * và đang chứa đúng frame cần.
  * @param index: chỉ số frame đang cần đọc
- * @return true nếu đã chuyển và buffer mới đang chứa frame cần, false nếu chưa thể chuyển
+ * @return E_OK nếu đã chuyển và buffer mới đang chứa frame cần, E_NOT_OK nếu chưa thể chuyển
  */
-static bool DoubleBuffer_FlipBuffer(uint32_t index)
+static Std_ReturnType DoubleBuffer_FlipBuffer(uint32_t index)
 {
     if (gbUsingA == true)
     {
@@ -122,7 +122,7 @@ static bool DoubleBuffer_FlipBuffer(uint32_t index)
             {
                 gbUsingA = false;
                 ESP_LOGD(TAG, "Flip to buffer B, startB=%lu, countB=%lu", gu32StartB, gu32CountB);
-                return true;
+                return E_OK;
             }
         }
     }
@@ -134,20 +134,35 @@ static bool DoubleBuffer_FlipBuffer(uint32_t index)
             {
                 gbUsingA = true;
                 ESP_LOGD(TAG, "Flip to buffer A, startA=%lu, countA=%lu", gu32StartA, gu32CountA);
-                return true;
+                return E_OK;
             }
         }
     }
 
-    return false;
+    return E_NOT_OK;
 }
 
 /* ===================================================
  *  GLOBAL FUNCTION
  * =================================================== */
 
+/**
+ * @brief DoubleBuffer_Init
+ * Khởi tạo module double buffer (reset toàn bộ trạng thái buffer về ban đầu). CHỈ được gọi
+ * bởi Sdcard_Task - đây là owner duy nhất của module này, mọi hàm khác trong file này cũng
+ * chỉ Sdcard_Task được gọi (trực tiếp, hoặc qua Sdcard_HandleCommand khi nhận
+ * SDCARD_CMD_GET_SINGLE_FRAME từ Oled_Task - xem sdcard.c). Vì chỉ 1 thread duy nhất từng đụng vào
+ * dữ liệu module này, không cần mutex bảo vệ như thiết kế cũ. Phải gọi trước
+ * DoubleBuffer_LoadAll()/DoubleBuffer_GetFrame().
+ * @param
+ * @return
+ */
 void DoubleBuffer_Init(void)
 {
+    /* Chỉ reset METADATA (chỉ số/cờ trạng thái) - KHÔNG xoá nội dung gau8BufferA/B, vì dữ
+       liệu cũ (nếu có) sẽ bị coi là "không sẵn sàng" (gbReadyA/B = false) nên không ai đọc
+       nhầm, và việc memset 2 buffer lớn (CACHE_FRAMES * FRAME_SIZE mỗi buffer) chỉ tốn thời
+       gian vô ích */
     gu32StartA = 0;
     gu32StartB = 0;
     gu32CountA = 0;
@@ -161,8 +176,18 @@ void DoubleBuffer_Init(void)
     ESP_LOGI(TAG, "Double buffer module initialized");
 }
 
-void DoubleBuffer_Open(const char *path)
+/**
+ * @brief DoubleBuffer_LoadAll
+ * Mở file frame.bin của bài hát mới, nạp đầy 2 buffer A và B ban đầu (đồng bộ, chạy ngay
+ * trong task gọi hàm này - hiện luôn được Sdcard_Task gọi lúc đổi bài)
+ * @param path: đường dẫn file frame.bin (vd "/sdcard/song1.bin")
+ * @return E_OK nếu mở file và nạp được ít nhất 1 buffer, E_NOT_OK nếu không mở được file
+ *         hoặc cả 2 buffer A/B đều nạp thất bại
+ */
+Std_ReturnType DoubleBuffer_LoadAll(const char *path)
 {
+    /* Đóng file frame.bin của bài TRƯỚC (nếu còn mở) trước khi mở bài mới - tránh rò rỉ file
+       handle (gpFrameFile bị ghi đè bên dưới mà không fclose() cái cũ trước) */
     if (gpFrameFile != NULL)
     {
         fclose(gpFrameFile);
@@ -173,9 +198,12 @@ void DoubleBuffer_Open(const char *path)
     if (gpFrameFile == NULL)
     {
         ESP_LOGE(TAG, "Cannot open %s", path);
-        return;
+        return E_NOT_OK;
     }
 
+    /* Tính tổng số frame = kích thước file / FRAME_SIZE, bằng cách seek tới cuối file lấy
+       kích thước (ftell) rồi seek lại về đầu (SEEK_SET) để các lần fread sau (trong
+       DoubleBuffer_LoadInternal) đọc đúng từ frame 0 */
     fseek(gpFrameFile, 0, SEEK_END);
     long lSize = ftell(gpFrameFile);
     fseek(gpFrameFile, 0, SEEK_SET);
@@ -183,31 +211,59 @@ void DoubleBuffer_Open(const char *path)
     ESP_LOGI(TAG, "Opened %s, total frames = %lu", path, gu32TotalFrames);
 
     /* Nạp buffer A từ frame 0 */
-    gbReadyA = DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, 0);
+    gbReadyA = (DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, 0) == E_OK);
 
-    /* Nạp buffer B nối tiếp ngay sau buffer A */
+    /* Nạp buffer B nối tiếp ngay sau buffer A - làm ngay tại đây (không đợi
+       DoubleBuffer_GetFrame() phát hiện thiếu rồi mới nạp) để có sẵn dữ liệu preload ngay
+       từ lần gọi DoubleBuffer_GetFrame() đầu tiên, không phải chờ round-trip đọc thẻ SD */
     uint32_t lu32StartBufferB = gu32StartA + gu32CountA;
-    gbReadyB = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, lu32StartBufferB);
+    gbReadyB = (DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, lu32StartBufferB) == E_OK);
 
+    /* Bài mới luôn bắt đầu đọc từ buffer A (chứa frame 0) */
     gbUsingA = true;
 
+    /* Cả 2 buffer đều nạp thất bại (vd file rỗng, hoặc lỗi đọc thẻ SD ngay từ đầu) -> không
+       còn gì để phát animation cho bài này, đóng hẳn file lại thay vì giữ 1 file handle vô
+       dụng (mọi lần gọi DoubleBuffer_GetFrame() sau đó sẽ tự trả E_NOT_OK vì index luôn
+       >= gu32TotalFrames == 0) */
     if ((gbReadyA == false) && (gbReadyB == false))
     {
         ESP_LOGE(TAG, "Failed to load double buffer for %s", path);
         fclose(gpFrameFile);
         gpFrameFile = NULL;
         gu32TotalFrames = 0;
+        return E_NOT_OK;
     }
+
+    return E_OK;
 }
 
-void DoubleBuffer_Close(void)
+/**
+ * @brief DoubleBuffer_UnloadAll
+ * Đóng file frame.bin đang mở, reset toàn bộ trạng thái buffer về ban đầu
+ * @param
+ * @return E_OK nếu đang có file mở và đã đóng lại, E_NOT_OK nếu trước đó không có file nào
+ *         đang mở (gpFrameFile đã NULL sẵn) - dù trả về gì, state vẫn LUÔN được reset đầy đủ
+ */
+Std_ReturnType DoubleBuffer_UnloadAll(void)
 {
+    Std_ReturnType lRet;
+
     if (gpFrameFile != NULL)
     {
         fclose(gpFrameFile);
         gpFrameFile = NULL;
+        lRet = E_OK;
+    }
+    else
+    {
+        lRet = E_NOT_OK;
     }
 
+    /* Giống DoubleBuffer_Init() - chỉ reset metadata, không đụng vào nội dung
+       gau8BufferA/B (gbReadyA/B = false đã đủ để không ai đọc nhầm dữ liệu cũ). LUÔN chạy
+       bất kể lRet là gì - reset state là việc phải làm mỗi lần gọi, không phụ thuộc việc có
+       thực sự đóng được file hay không */
     gbReadyA = false;
     gbReadyB = false;
     gu32StartA = 0;
@@ -216,13 +272,27 @@ void DoubleBuffer_Close(void)
     gu32CountB = 0;
     gbUsingA = true;
     gu32TotalFrames = 0;
+
+    return lRet;
 }
 
-bool DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame)
+/**
+ * @brief DoubleBuffer_GetFrame
+ * Lấy dữ liệu 1 frame theo chỉ số, ghi thẳng vào pOutFrame. CHỈ được gọi bởi Sdcard_Task
+ * (qua Sdcard_HandleCommand khi nhận SDCARD_CMD_GET_SINGLE_FRAME, pOutFrame chính là
+ * Srm_Message_s.pData mà Oled_Task truyền vào qua Srm_SdcardGetSingleFrame() - xem srm.h) - vì
+ * luôn chạy trên chính thread của Sdcard_Task, hàm tự nạp trước/nạp gấp bằng lời gọi hàm
+ * thường (không cần mutex hay round-trip SRM nào khác).
+ * @param index: chỉ số frame cần lấy (0..tổng số frame của bài đang mở - 1)
+ * @param pOutFrame: buffer đích nhận dữ liệu, kích thước tối thiểu FRAME_SIZE byte
+ * @return E_OK nếu lấy thành công, E_NOT_OK nếu index ngoài phạm vi, pOutFrame NULL, hoặc đọc
+ *         thẻ SD thất bại
+ */
+Std_ReturnType DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame)
 {
     if ((pOutFrame == NULL) || (index >= gu32TotalFrames))
     {
-        return false;
+        return E_NOT_OK;
     }
 
     /* Vòng lặp retry (không đệ quy) - thử tìm frame trong buffer hiện có, nếu không có thì
@@ -243,12 +313,12 @@ bool DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame)
                 uint32_t lu32LoadIndex = gu32StartA + gu32CountA;
                 if (lu32LoadIndex < gu32TotalFrames)
                 {
-                    gbReadyB = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, lu32LoadIndex);
+                    gbReadyB = (DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, lu32LoadIndex) == E_OK);
                     ESP_LOGD(TAG, "Preloaded buffer B at index %lu, ready=%d", lu32LoadIndex, (int)gbReadyB);
                 }
             }
 
-            return true;
+            return E_OK;
         }
 
         if ((gbUsingA == false) && (gbReadyB == true) &&
@@ -261,16 +331,16 @@ bool DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame)
                 uint32_t lu32LoadIndex = gu32StartB + gu32CountB;
                 if (lu32LoadIndex < gu32TotalFrames)
                 {
-                    gbReadyA = DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, lu32LoadIndex);
+                    gbReadyA = (DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, lu32LoadIndex) == E_OK);
                     ESP_LOGD(TAG, "Preloaded buffer A at index %lu, ready=%d", lu32LoadIndex, (int)gbReadyA);
                 }
             }
 
-            return true;
+            return E_OK;
         }
 
         /* Không có trong buffer đang dùng -> thử chuyển sang buffer còn lại */
-        if (DoubleBuffer_FlipBuffer(index) == true)
+        if (DoubleBuffer_FlipBuffer(index) == E_OK)
         {
             continue;
         }
@@ -279,22 +349,22 @@ bool DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame)
            đọc (buffer đang dùng để nguyên, không ghi đè dữ liệu đang/sắp đọc) */
         ESP_LOGW(TAG, "Frame %lu not in any buffer, loading urgently", index);
 
-        bool lbLoaded;
+        Std_ReturnType lRetLoaded;
         if (gbUsingA == true)
         {
-            lbLoaded = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, index);
-            gbReadyB = lbLoaded;
+            lRetLoaded = DoubleBuffer_LoadInternal(gau8BufferB, &gu32StartB, &gu32CountB, index);
+            gbReadyB = (lRetLoaded == E_OK);
         }
         else
         {
-            lbLoaded = DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, index);
-            gbReadyA = lbLoaded;
+            lRetLoaded = DoubleBuffer_LoadInternal(gau8BufferA, &gu32StartA, &gu32CountA, index);
+            gbReadyA = (lRetLoaded == E_OK);
         }
 
-        if (lbLoaded == false)
+        if (lRetLoaded == E_NOT_OK)
         {
             ESP_LOGE(TAG, "Failed to load frame %lu", index);
-            return false;
+            return E_NOT_OK;
         }
 
         /* Chuyển thẳng gbUsingA sang buffer vừa nạp - biết chắc nó đang chứa đúng index cần,

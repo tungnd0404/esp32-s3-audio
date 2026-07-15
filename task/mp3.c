@@ -7,6 +7,7 @@
 #include "vs1053.h"
 #include "ring_buffer.h"
 #include "player_manager.h"
+#include "esp_log.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -15,7 +16,7 @@
 /* Số request tối đa có thể chờ xử lý trong xMp3CommandQueue cùng lúc */
 #define MP3_COMMAND_QUEUE_LENGTH   4U
 
-/* Thời gian tối đa chờ RingBuffer_Read() mỗi vòng lặp trong Mp3_StreamCurrentSong() khi
+/* Thời gian tối đa chờ RingBuffer_Read() mỗi vòng lặp trong Mp3_StreamSong() khi
    xMp3RingBuffer đang tạm rỗng. Không dùng portMAX_DELAY - Sdcard_Task nạp lại theo chu kỳ
    ~50ms (SDCARD_LOAD_WAIT_MS trong sdcard.c), chờ dài hơn 1 chu kỳ đó là đủ mà không giữ
    task quá lâu, còn kịp check non-blocking notification + xMp3CommandQueue ở vòng sau */
@@ -47,6 +48,9 @@ volatile bool gbMp3StreamEof = true;
  *  LOCAL VARIABLES
  * =================================================== */
 
+/* Tag dùng cho ESP_LOGx trong module này */
+static const char *TAG = "MP3";
+
 /* ===================================================
  *  LOCAL FUNCTION
  * =================================================== */
@@ -66,15 +70,17 @@ static void Mp3_HandleCommand(vs1053_handle_t *pDev, const Srm_Message_s *pReque
     switch ((Srm_CommandType_e)pRequest->cmdId)
     {
         case MP3_CMD_GET_DECODE_TIME:
-            /* vs1053_get_decoded_time() trả uint16_t, payload của Srm_Message_s là uint32_t
-               thô -> ép kiểu mở rộng, bên nhận (sync_frame.c) sẽ tự ép lại về uint16_t */
-            Srm_Reply(pRequest, (uint32_t)vs1053_get_decoded_time(pDev));
+            /* vs1053_get_decoded_time() trả uint16_t, ghi thẳng (mở rộng thành uint32_t vì
+               pData cần kiểu cố định) vào pRequest->pData - biến đích của Srm_Mp3GetDecodeTime()
+               truyền vào (xem srm.c), payload chỉ còn mang kết quả E_OK/E_NOT_OK */
+            *(uint32_t *)pRequest->pData = (uint32_t)vs1053_get_decoded_time(pDev);
+            Srm_Reply(pRequest, (uint32_t)E_OK);
             break;
 
         default:
-            /* cmdId lạ (chưa định nghĩa xử lý) -> vẫn trả lời 0 để bên gửi không phải chờ
-               hết timeout, tránh trường hợp SRM_CMD_INVALID lọt qua được lúc gửi */
-            Srm_Reply(pRequest, 0U);
+            /* cmdId lạ (chưa định nghĩa xử lý) -> vẫn trả lời E_NOT_OK để bên gửi không
+               phải chờ hết timeout, tránh trường hợp SRM_CMD_INVALID lọt qua được lúc gửi */
+            Srm_Reply(pRequest, (uint32_t)E_NOT_OK);
             break;
     }
 }
@@ -82,7 +88,7 @@ static void Mp3_HandleCommand(vs1053_handle_t *pDev, const Srm_Message_s *pReque
 /**
  * @brief Mp3_ServicePendingCommand
  * Check non-blocking (timeout = 0) xem xMp3CommandQueue có request nào đang chờ không,
- * có thì xử lý ngay. Gọi mỗi vòng lặp trong Mp3_StreamCurrentSong() để các request như
+ * có thì xử lý ngay. Gọi mỗi vòng lặp trong Mp3_StreamSong() để các request như
  * MP3_CMD_GET_DECODE_TIME (sync_frame.c gọi liên tục để đồng bộ animation) được trả lời
  * kịp thời trong lúc đang phát nhạc.
  * LƯU Ý: hàm này KHÔNG được gọi khi Mp3_Task đang rảnh/tạm dừng (đang chờ notify ở vòng
@@ -103,32 +109,44 @@ static void Mp3_ServicePendingCommand(vs1053_handle_t *pDev)
 }
 
 /**
- * @brief Mp3_StreamCurrentSong
+ * @brief Mp3_StreamSong
  * Rút dữ liệu mp3 thô từ xMp3RingBuffer, gửi cho VS1053 từng khối tối đa VS1053_CHUNK_SIZE
  * byte một, cho tới khi Pause/đổi bài/hết bài. KHÔNG tự đọc thẻ SD (Mp3_Task không còn là
  * nơi mở/đọc file mp3 - vi phạm kiến trúc Owner Task vì Sdcard_Task mới là owner duy nhất
  * của thẻ SD, xem srm.h) - Sdcard_Task tự mở file mp3 và nạp liên tục vào xMp3RingBuffer
- * ngay khi nhận CÙNG notification đổi bài (xem Sdcard_LoadCurrentSong trong sdcard.c), Mp3_Task
- * ở đây chỉ việc rút ra và phát. Cùng khuôn mẫu với Oled_PlayAnimation() (oled.c) và
- * Sdcard_LoadCurrentSong() (sdcard.c): mỗi vòng lặp đều check non-blocking notification để
- * không trễ khi cần xử lý sự kiện khác, kết quả trả về qua tham số ra để vòng lặp ngoài
- * không bị mất giá trị notification vừa nhận.
+ * ngay khi nhận CÙNG notification đổi bài (xem Sdcard_LoadSong trong sdcard.c), Mp3_Task
+ * ở đây chỉ việc rút ra và phát. Chỉ nên được gọi khi playbackState đang là
+ * PLAYBACK_STATE_PLAY - PAUSE có hàm riêng Mp3_HandlePause(), không đi qua đây nữa. Có check
+ * phòng thủ ngay đầu hàm: nếu lúc gọi playbackState không phải PLAY (gọi sai chỗ) thì thoát
+ * ngay, không đọc/gửi byte nào - giống hệt Oled_PlayAnimation() (oled.c). Cùng khuôn mẫu với
+ * Oled_PlayAnimation() và Sdcard_LoadSong() (sdcard.c): mỗi vòng lặp đều check
+ * non-blocking notification để không trễ khi cần xử lý sự kiện khác, kết quả trả về qua
+ * tham số ra để vòng lặp ngoài không bị mất giá trị notification vừa nhận.
  *
+ * LƯU Ý: KHÔNG check gsPlayerContext.mainState ở đây (khác với code cũ) - double click về
+ * MENU lúc đang PLAYING chỉ báo notify cho Oled_Task (xem player_manager.c), KHÔNG báo
+ * Mp3_Task, đúng ý "nhạc vẫn phát nền" khi thoát PLAYING về MENU. Nếu check thêm mainState,
+ * vòng lặp bên dưới sẽ tự thoát ngay khi mainState đổi (dù không hề có notify) và Mp3_Task
+ * rơi vào chờ vô hạn, dừng phát nhạc nền sai với thiết kế.
+ *
+ * Bài MỚI (Next/Prev/chọn bài từ MENU) cần reset trạng thái decode nội bộ của VS1053
+ * (vs1053_start_song) TRƯỚC KHI gọi hàm này - việc đó do bên gọi tự làm ở switch case tương
+ * ứng trong Mp3_Task (giống hệt cách Oled_Task tự gọi SyncFrame_Init() trước
+ * Oled_PlayAnimation() thay vì truyền cờ "có phải bài mới không" vào), không phải việc của
+ * hàm này.
  * @param pDev: con trỏ device VS1053 (đã Mp3_Task khởi tạo)
- * @param bIsNewSong: true nếu đây là bài MỚI (Next/Prev/chọn bài từ MENU) -> reset trạng
- *        thái decode nội bộ của VS1053 cho bài mới (vs1053_start_song). false nếu chỉ là
- *        Resume sau Pause -> không reset, tiếp tục đúng vị trí đang dừng.
  * @param pu32NotifyValue: [out] giá trị notification mới nhận được, chỉ có ý nghĩa khi
  *        hàm trả về true
- * @return true nếu thoát do có notification mới cần xử lý tiếp, false nếu thoát do
- *         xMp3RingBuffer chưa được khởi tạo, hoặc đã phát hết bài (EOF)
+ * @return true nếu thoát do có notification mới cần xử lý tiếp, false nếu gọi sai lúc
+ *         playbackState không phải PLAY, xMp3RingBuffer chưa được khởi tạo, hoặc đã phát
+ *         hết bài (EOF)
  */
-static bool Mp3_StreamCurrentSong(vs1053_handle_t *pDev, bool bIsNewSong, uint32_t *pu32NotifyValue)
+static bool Mp3_StreamSong(vs1053_handle_t *pDev, uint32_t *pu32NotifyValue)
 {
-    if (bIsNewSong == true)
+    /* Phòng thủ: hàm này chỉ dành cho lúc đang PLAY, không phải nơi xử lý PAUSE */
+    if (gsPlayerContext.playbackState != PLAYBACK_STATE_PLAY)
     {
-        /* Reset trạng thái stream nội bộ của VS1053 cho bài mới (end_fill_byte...) */
-        vs1053_start_song(pDev);
+        return false;
     }
 
     /* Phòng thủ: module chưa init (Mp3_Init() chưa từng gọi) -> không có gì để đọc */
@@ -137,10 +155,9 @@ static bool Mp3_StreamCurrentSong(vs1053_handle_t *pDev, bool bIsNewSong, uint32
         return false;
     }
 
-    /* Còn stream khi: đang ở màn hình PLAYING và playbackState không phải PAUSE.
-       Dùng playbackState (tồn tại liên tục) thay vì buttonState (chỉ tồn tại trong
-       khoảnh khắc xử lý 1 lần bấm nút rồi tự về IDLE) - giống hệt Oled_PlayAnimation() */
-    while ((gsPlayerContext.mainState == MAIN_STATE_PLAYING) && (gsPlayerContext.playbackState != PLAYBACK_STATE_PAUSE))
+    /* Vòng lặp stream, chạy tới khi có notification mới cần xử lý (Pause/đổi bài/về menu...)
+       hoặc hết bài (EOF) - giống hệt Oled_PlayAnimation() */
+    while (1)
     {
         /* Check non-blocking (timeout = 0): có notification mới thì thoát ngay, không chờ */
         if (xTaskNotifyWait(0, UINT32_MAX, pu32NotifyValue, 0) == pdTRUE)
@@ -182,6 +199,24 @@ static bool Mp3_StreamCurrentSong(vs1053_handle_t *pDev, bool bIsNewSong, uint32
     return false;
 }
 
+/**
+ * @brief Mp3_HandlePause
+ * Xử lý lúc playbackState chuyển sang PLAYBACK_STATE_PAUSE: dừng bơm dữ liệu cho VS1053.
+ * Không cần lệnh phần cứng nào thêm để "tạm dừng" - VS1053 tự hết âm thanh ngay khi không
+ * còn được gọi vs1053_send_buffer() nữa (hết dữ liệu trong FIFO nội bộ của chip), vị trí đọc
+ * xMp3RingBuffer vẫn giữ nguyên nên lần Resume sau (Mp3_StreamSong()) phát tiếp
+ * đúng chỗ đang dừng. Cùng khuôn mẫu với Oled_DrawPauseIcon() (oled.c) - PAUSE có
+ * hàm riêng, không đi qua Mp3_StreamSong() nữa.
+ * @param pu32NotifyValue: [out] giá trị notification mới nhận được, chỉ có ý nghĩa khi hàm trả về true
+ * @return true nếu thoát do có notification mới cần xử lý tiếp (hiện luôn false vì hàm
+ *         không tự chờ notification nào - chỉ đơn thuần dừng lại)
+ */
+static bool Mp3_HandlePause(uint32_t *pu32NotifyValue)
+{
+    (void)pu32NotifyValue;
+    return false;
+}
+
 /* ===================================================
  *  GLOBAL FUNCTION
  * =================================================== */
@@ -218,25 +253,30 @@ void Mp3_Init(void)
  * Mp3_Task còn có kênh input thứ 2 mà Oled_Task/Sdcard_Task không có: xMp3CommandQueue
  * (request/response theo kiến trúc Owner Task, xem srm.h) - các module khác (vd
  * sync_frame.c) gửi lệnh đọc/ghi VS1053 vào đây thay vì gọi thẳng API vs1053_*. Kênh này
- * chỉ được xử lý (Mp3_ServicePendingCommand) bên trong Mp3_StreamCurrentSong() - tức CHỈ
+ * chỉ được xử lý (Mp3_ServicePendingCommand) bên trong Mp3_StreamSong() - tức CHỈ
  * lúc đang thực sự stream nhạc. Nếu Mp3_Task đang rảnh (chưa phát bài nào) hoặc đang
  * Pause, request sẽ không có ai trả lời cho tới khi phát nhạc trở lại - đây là giới hạn
  * đã biết, chấp nhận được vì Srm_Mp3GetDecodeTime() phía bên gửi luôn có timeout + giá trị
  * cũ để dùng tạm, không bị treo.
  *
- * 3 nhánh xử lý theo buttonState:
+ * 4 nhánh xử lý theo buttonState:
  * - BTN_STATE_NEXT/PREV/PLAY_NEW: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
- *   -> Mp3_StreamCurrentSong(..., bIsNewSong=true, ...) reset VS1053 cho bài mới. Sdcard_Task
- *   nhận CÙNG notification này để tự mở file mp3 mới và nạp lại xMp3RingBuffer từ đầu (xem
- *   Sdcard_LoadCurrentSong trong sdcard.c) - Mp3_Task không tự đụng tới thẻ SD nữa.
- * - BTN_STATE_PLAY/PAUSE: bấm Play/Pause, bài không đổi -> Mp3_StreamCurrentSong(...,
- *   bIsNewSong=false, ...), không reset VS1053 -> nếu playbackState đang là PLAY thì tiếp
- *   tục rút dữ liệu từ xMp3RingBuffer đúng vị trí đang dừng, nếu đang là PAUSE thì vòng lặp
- *   bên trong thoát ngay lập tức (không đọc/gửi gì).
+ *   -> huỷ + xả sạch trạng thái decode của bài CŨ (vs1053_cancel_song + vs1053_stop_song),
+ *   rồi mới chuẩn bị trạng thái cho bài MỚI (vs1053_start_song) TRƯỚC KHI gọi
+ *   Mp3_StreamSong() - bắt buộc phải huỷ/xả bài cũ trước vì đây là chuyển bài GIỮA CHỪNG (VS1053
+ *   có thể đang decode dở 1 frame của bài cũ khi Next/Prev tới), khác với BTN_STATE_PLAY (chỉ
+ *   Resume, không có bài cũ nào đang dở cần dọn). Sdcard_Task nhận CÙNG notification này để
+ *   tự mở file mp3 mới và nạp lại xMp3RingBuffer từ đầu (xem Sdcard_LoadSong trong sdcard.c)
+ *   - Mp3_Task không tự đụng tới thẻ SD nữa.
+ * - BTN_STATE_PLAY: bấm Play (đầu tiên hoặc Resume sau Pause), bài không đổi -> chạy thẳng
+ *   Mp3_StreamSong(), không reset VS1053, tiếp tục rút dữ liệu từ xMp3RingBuffer đúng
+ *   vị trí đang dừng.
+ * - BTN_STATE_PAUSE: không đổi bài, chỉ tạm dừng -> Mp3_HandlePause() (không đi qua
+ *   Mp3_StreamSong() nữa - cùng khuôn mẫu BTN_STATE_PLAY/BTN_STATE_PAUSE của Oled_Task).
  * - Các buttonState còn lại (di chuyển cursor MENU, peek MENU...) -> bỏ qua.
  *
- * Cơ chế lbHasPendingNotify: Mp3_StreamCurrentSong() có thể thoát sớm vì vừa nhận 1
- * notification mới (thay vì thoát vì Pause/hết file) và đã đọc giá trị đó vào
+ * Cơ chế lbHasPendingNotify: Mp3_StreamSong()/Mp3_HandlePause() có thể thoát sớm vì
+ * vừa nhận 1 notification mới (thay vì thoát vì Pause/hết file) và đã đọc giá trị đó vào
  * lu32button_evt. Nếu vòng lặp ngoài gọi xTaskNotifyWait() lần nữa ngay lúc đó thì giá
  * trị vừa nhận sẽ bị mất (thay bằng giá trị chờ tiếp theo). lbHasPendingNotify = true báo
  * cho vòng lặp biết: bỏ qua bước chờ, xử lý ngay lu32button_evt đang có sẵn ở vòng lặp
@@ -249,32 +289,33 @@ void Mp3_Task(void *pvParameters)
 {
     /* Device VS1053 - biến local của task này, không cần chia sẻ ra ngoài vì Mp3_Task là
        nơi DUY NHẤT được đụng vào phần cứng (kiến trúc Owner Task) */
-    vs1053_handle_t lDevice;
+    vs1053_handle_t lDeviceInfo;
     /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
        (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
     uint32_t lu32button_evt;
     /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32button_evt đã có sẵn
-       1 giá trị mới cần xử lý ngay (do Mp3_StreamCurrentSong vừa trả về) */
+       1 giá trị mới cần xử lý ngay (do Mp3_StreamSong vừa trả về) */
     bool lbHasPendingNotify = false;
 
     /* Gán chân GPIO thật của board trước khi gọi vs1053_init() - vs1053_init() đọc lại
        các field này để tự cấu hình GPIO cho từng chân */
-    memset(&lDevice, 0, sizeof(lDevice));
-    lDevice.cs_pin = VS1053_CS_PIN;
-    lDevice.dcs_pin = VS1053_DCS_PIN;
-    lDevice.dreq_pin = VS1053_DREQ_PIN;
-    lDevice.reset_pin = VS1053_RESET_PIN;
+    memset(&lDeviceInfo, 0, sizeof(lDeviceInfo));
+    lDeviceInfo.cs_pin = VS1053_CS_PIN;
+    lDeviceInfo.dcs_pin = VS1053_DCS_PIN;
+    lDeviceInfo.dreq_pin = VS1053_DREQ_PIN;
+    lDeviceInfo.reset_pin = VS1053_RESET_PIN;
 
     /* vs1053_init() đã tự làm đầy đủ: reset phần cứng, khởi tạo SPI, kiểm tra kết nối,
        cấu hình clock/audio/mode (SM_SDINEW|SM_LINE1) và volume mặc định (50%) - không cần
        gọi thêm vs1053_switch_to_mp3_mode() ngay sau vì nội dung gần như trùng lặp, hàm đó
        chỉ dành cho việc CHUYỂN LẠI chế độ MP3 sau này nếu có nhu cầu (vd sau khi đổi mode
        khác), không cần thiết lúc khởi động lần đầu. */
-    if (vs1053_init(&lDevice) != ESP_OK)
+    if (vs1053_init(&lDeviceInfo) != ESP_OK)
     {
         /* Không có VS1053/lỗi kết nối -> không có gì để làm, task nằm im (không return -
            1 FreeRTOS task function không được phép return), tránh gọi tiếp các hàm vs1053_*
            khác trên 1 device chưa chắc đã khởi tạo đúng (spi_handle có thể không hợp lệ) */
+        ESP_LOGE(TAG, "vs1053_init failed - VS1053 not detected/misconfigured, Mp3_Task halted");
         while (1)
         {
             vTaskDelay(pdMS_TO_TICKS(1000));
@@ -291,7 +332,7 @@ void Mp3_Task(void *pvParameters)
             xTaskNotifyWait(0, UINT32_MAX, &lu32button_evt, portMAX_DELAY);
         }
         /* Dùng xong cờ pending cho vòng lặp này -> reset về false, chỉ set lại true
-           bên dưới nếu Mp3_StreamCurrentSong() báo còn notify chưa xử lý */
+           bên dưới nếu Mp3_StreamSong() báo còn notify chưa xử lý */
         lbHasPendingNotify = false;
 
         /* Rẽ nhánh trực tiếp trên buttonState vừa nhận, không qua state trung gian */
@@ -300,12 +341,39 @@ void Mp3_Task(void *pvParameters)
             case BTN_STATE_NEXT:
             case BTN_STATE_PREV:
             case BTN_STATE_PLAY_NEW:
-                lbHasPendingNotify = Mp3_StreamCurrentSong(&lDevice, true, &lu32button_evt);
+                /* Dọn sạch dữ liệu byte thô còn sót của bài CŨ trong xMp3RingBuffer TRƯỚC
+                   TIÊN (càng sớm càng tốt sau khi nhận notify, giảm khả năng Sdcard_Task đã
+                   kịp ghi vài byte đầu của bài MỚI vào rồi mới bị xoá nhầm - xem đánh đổi này
+                   trong ring_buffer.h). Mp3_Task là bên "nhận" duy nhất của xMp3RingBuffer nên
+                   đây là task DUY NHẤT được phép gọi RingBuffer_Reset() - KHÔNG gọi từ
+                   Sdcard_Task (bên "gửi") dù trước đây từng làm vậy, xem chi tiết lý do trong
+                   ring_buffer.h (RingBuffer_Reset) và sdcard.c (Sdcard_LoadSong) */
+                RingBuffer_Reset(xMp3RingBuffer);
+
+                /* Chuyển bài GIỮA CHỪNG - VS1053 có thể đang decode dở 1 frame của bài cũ
+                   lúc này, không dọn sạch trước thì dữ liệu bài mới bơm vào ngay sau có thể
+                   trộn lẫn với trạng thái decode cũ, gây rè/click ở điểm chuyển bài:
+                   1. vs1053_cancel_song(): báo chip huỷ decode bài cũ (set SM_CANCEL)
+                   2. vs1053_stop_song(): xả nốt FIFO nội bộ bằng end_fill_byte CỦA BÀI CŨ
+                      (chưa refresh - đúng ý muốn xả sạch đúng codec/patch đang decode dở)
+                   3. vs1053_start_song(): đọc lại end_fill_byte mới, sẵn sàng cho bài MỚI
+                   (Không poll xác nhận SM_CANCEL tự clear như khuyến nghị đầy đủ của
+                   datasheet - đơn giản hoá chấp nhận được cho player nghe nhạc thường) */
+                vs1053_cancel_song(&lDeviceInfo);
+                vs1053_stop_song(&lDeviceInfo);
+                vs1053_start_song(&lDeviceInfo);
+                lbHasPendingNotify = Mp3_StreamSong(&lDeviceInfo, &lu32button_evt);
                 break;
 
             case BTN_STATE_PLAY:
+                /* Không đổi bài nên không cần reset VS1053 -> chạy thẳng stream */
+                lbHasPendingNotify = Mp3_StreamSong(&lDeviceInfo, &lu32button_evt);
+                break;
+
             case BTN_STATE_PAUSE:
-                lbHasPendingNotify = Mp3_StreamCurrentSong(&lDevice, false, &lu32button_evt);
+                /* Không đổi bài, chỉ tạm dừng -> dừng bơm dữ liệu (xem Mp3_HandlePause)
+                   thay vì tiếp tục stream */
+                lbHasPendingNotify = Mp3_HandlePause(&lu32button_evt);
                 break;
 
             case BTN_STATE_UP:

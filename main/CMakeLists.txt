@@ -25,4 +25,5 @@ idf_component_register(
         "../driver/button"
         "../driver/srm"
         "../driver/vs1053"
+        "../common"
 )

@@ -6,6 +6,8 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
+#include "mp3.h"      /* extern xMp3CommandQueue - owner cố định của Srm_Mp3GetDecodeTime() */
+#include "sdcard.h"    /* extern xSdCommandQueue - owner cố định của Srm_SdcardGetSingleFrame() */
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -152,12 +154,12 @@ static QueueHandle_t Srm_GetOwnResponseQueue(void)
  * @param pData: con trỏ dữ liệu lớn hơn kèm theo lệnh (owner ghi thẳng dữ liệu trả về vào
  *        đây nếu lệnh cần, xem Srm_Message_s), NULL nếu lệnh không cần
  * @param timeoutTicks: thời gian tối đa chờ phản hồi
- * @return true nếu gửi và nhận được phản hồi thành công, false nếu ownerQueue chưa tồn
+ * @return E_OK nếu gửi và nhận được phản hồi thành công, E_NOT_OK nếu ownerQueue chưa tồn
  *         tại, cmdId không hợp lệ (>= SRM_CMD_INVALID), SRM hết chỗ đăng ký task mới,
  *         command queue đầy, hoặc hết thời gian chờ
  */
-static bool Srm_SendCommand(QueueHandle_t ownerQueue, uint32_t cmdId, uint32_t *pPayload,
-                             void *pData, TickType_t timeoutTicks)
+static Std_ReturnType Srm_SendCommand(QueueHandle_t ownerQueue, uint32_t cmdId, uint32_t *pPayload,
+                                       void *pData, TickType_t timeoutTicks)
 {
     Srm_Message_s lRequest;
     Srm_Message_s lResponse;
@@ -166,20 +168,20 @@ static bool Srm_SendCommand(QueueHandle_t ownerQueue, uint32_t cmdId, uint32_t *
     /* Owner task chưa tạo command queue (vd chưa được triển khai/khởi tạo) -> không có ai xử lý */
     if (ownerQueue == NULL)
     {
-        return false;
+        return E_NOT_OK;
     }
 
     /* cmdId nằm ngoài phạm vi lệnh hợp lệ (>= SRM_CMD_INVALID) -> từ chối, không gửi */
     if (cmdId >= SRM_CMD_INVALID)
     {
-        return false;
+        return E_NOT_OK;
     }
 
     /* Lấy (hoặc tạo lần đầu) response queue riêng của task đang gọi hàm này */
     lResponseQueue = Srm_GetOwnResponseQueue();
     if (lResponseQueue == NULL)
     {
-        return false;
+        return E_NOT_OK;
     }
 
     lRequest.kind = SRM_MSG_COMMAND;
@@ -191,19 +193,19 @@ static bool Srm_SendCommand(QueueHandle_t ownerQueue, uint32_t cmdId, uint32_t *
     /* Gửi request, không chờ nếu command queue của owner đang đầy */
     if (xQueueSend(ownerQueue, &lRequest, 0) != pdTRUE)
     {
-        return false;
+        return E_NOT_OK;
     }
 
     /* Chờ owner task trả lời tối đa timeoutTicks, trên đúng queue riêng của task này */
     if (xQueueReceive(lResponseQueue, &lResponse, timeoutTicks) != pdTRUE)
     {
-        return false;
+        return E_NOT_OK;
     }
 
     /* Sau khi gửi queue và nhận response, pPayload là output */
     *pPayload = lResponse.payload;
 
-    return true;
+    return E_OK;
 }
 
 /* ===================================================
@@ -228,16 +230,16 @@ void Srm_Init(void)
  * Owner task dùng để trả lời 1 request đã nhận được từ command queue của chính mình.
  * @param pRequest: request đã nhận (dùng pRequest->responseQueue để gửi trả lời)
  * @param payload: dữ liệu trả về
- * @return true nếu gửi trả lời thành công, false nếu pRequest không có responseQueue hoặc
+ * @return E_OK nếu gửi trả lời thành công, E_NOT_OK nếu pRequest không có responseQueue hoặc
  *         gửi thất bại (hàng đợi đầy)
  */
-bool Srm_Reply(const Srm_Message_s *pRequest, uint32_t payload)
+Std_ReturnType Srm_Reply(const Srm_Message_s *pRequest, uint32_t payload)
 {
     Srm_Message_s lResponse;
 
     if ((pRequest == NULL) || (pRequest->responseQueue == NULL))
     {
-        return false;
+        return E_NOT_OK;
     }
 
     lResponse.kind = SRM_MSG_DATA;
@@ -246,64 +248,90 @@ bool Srm_Reply(const Srm_Message_s *pRequest, uint32_t payload)
     lResponse.pData = NULL;
     lResponse.responseQueue = NULL;
 
-    return (xQueueSend(pRequest->responseQueue, &lResponse, 0) == pdTRUE);
+    if (xQueueSend(pRequest->responseQueue, &lResponse, 0) == pdTRUE)
+    {
+        return E_OK;
+    }
+    else
+    {
+        return E_NOT_OK;
+    }
 }
 
 /**
  * @brief Srm_Mp3GetDecodeTime
- * Hỏi Mp3_Task thời gian đã giải mã (giây) của bài đang phát (owner: Mp3_Task).
- * @param ownerQueue: command queue của Mp3_Task (xMp3CommandQueue)
- * @param pDecodeTimeSec: [out] thời gian đã giải mã (giây), chỉ hợp lệ khi hàm trả về true
+ * Hỏi Mp3_Task thời gian đã giải mã (giây) của bài đang phát (owner: Mp3_Task). Mp3_Task ghi
+ * thẳng giá trị đọc được vào pData, payload chỉ còn mang E_OK/E_NOT_OK.
+ * @param pDecodeTimeSec: [out] thời gian đã giải mã (giây), chỉ hợp lệ khi hàm trả về E_OK
  * @param timeoutTicks: thời gian tối đa chờ phản hồi
- * @return true nếu nhận được phản hồi trong thời gian chờ, false nếu thất bại/timeout
+ * @return E_OK nếu nhận được phản hồi E_OK trong thời gian chờ, E_NOT_OK nếu thất bại/
+ *         timeout/Mp3_Task trả lời E_NOT_OK
  */
-bool Srm_Mp3GetDecodeTime(QueueHandle_t ownerQueue, uint16_t *pDecodeTimeSec, TickType_t timeoutTicks)
+Std_ReturnType Srm_Mp3GetDecodeTime(uint16_t *pDecodeTimeSec, TickType_t timeoutTicks)
 {
     if (pDecodeTimeSec == NULL)
     {
-        return false;
+        return E_NOT_OK;
     }
 
-    /* MP3_CMD_GET_DECODE_TIME không cần tham số vào -> payload để 0, không cần pData vì kết
-       quả chỉ 4 byte, đủ chứa trong payload */
+    /* MP3_CMD_GET_DECODE_TIME không cần tham số vào -> payload để 0 lúc gửi; pData mang địa
+       chỉ lu32DecodeTime để Mp3_Task ghi thẳng thời gian giải mã vào (giống cơ chế pOutFrame
+       của Srm_SdcardGetSingleFrame), payload lúc trả lời chỉ còn mang E_OK/E_NOT_OK. Owner
+       của lệnh này luôn cố định là Mp3_Task (xMp3CommandQueue) - không nhận ownerQueue làm
+       tham số để tránh bên gọi lỡ tay truyền nhầm queue khác */
     uint32_t lu32Payload = 0U;
-    if (Srm_SendCommand(ownerQueue, MP3_CMD_GET_DECODE_TIME, &lu32Payload, NULL, timeoutTicks) == false)
+    uint32_t lu32DecodeTime = 0U;
+    if (Srm_SendCommand(xMp3CommandQueue, MP3_CMD_GET_DECODE_TIME, &lu32Payload, &lu32DecodeTime, timeoutTicks) == E_NOT_OK)
     {
-        return false;
+        return E_NOT_OK;
     }
 
-    /* vs1053_get_decoded_time() trả uint16_t, Mp3_Task ép kiểu mở rộng thành uint32_t để
-       trả qua payload -> ép kiểu lại về uint16_t ở đây */
-    *pDecodeTimeSec = (uint16_t)lu32Payload;
-    return true;
+    /* Sau khi gửi/nhận, lu32Payload là kết quả owner trả về (E_OK/E_NOT_OK) */
+    if (lu32Payload != (uint32_t)E_OK)
+    {
+        return E_NOT_OK;
+    }
+
+    /* vs1053_get_decoded_time() trả uint16_t, Mp3_Task ghi thẳng (mở rộng thành uint32_t vì
+       pData cần kiểu cố định) vào lu32DecodeTime -> ép kiểu lại về uint16_t ở đây */
+    *pDecodeTimeSec = (uint16_t)lu32DecodeTime;
+    return E_OK;
 }
 
 /**
  * @brief Srm_SdcardGetSingleFrame
  * Xin Sdcard_Task 1 frame animation theo chỉ số (owner: Sdcard_Task).
- * @param ownerQueue: command queue của Sdcard_Task (xSdCommandQueue)
  * @param frameIndex: chỉ số frame cần lấy
  * @param pOutFrame: buffer đích nhận dữ liệu, kích thước tối thiểu FRAME_SIZE byte
  * @param timeoutTicks: thời gian tối đa chờ phản hồi
- * @return true nếu lấy thành công (pOutFrame đã có dữ liệu mới), false nếu thất bại/timeout/
- *         Sdcard_Task không nạp được frame
+ * @return E_OK nếu lấy thành công (payload nhận về E_OK, pOutFrame đã có dữ liệu mới),
+ *         E_NOT_OK nếu thất bại/timeout/Sdcard_Task trả lời E_NOT_OK (không nạp được frame)
  */
-bool Srm_SdcardGetSingleFrame(QueueHandle_t ownerQueue, uint32_t frameIndex, uint8_t *pOutFrame, TickType_t timeoutTicks)
+Std_ReturnType Srm_SdcardGetSingleFrame(uint32_t frameIndex, uint8_t *pOutFrame, TickType_t timeoutTicks)
 {
     if (pOutFrame == NULL)
     {
-        return false;
+        return E_NOT_OK;
     }
 
-    /* payload mang chỉ số frame lúc gửi đi, pData mang buffer đích để owner ghi thẳng dữ
-       liệu 1024 byte vào (không thể truyền qua payload - chỉ 4 byte) */
+    /* payload mang chỉ số frame lúc gửi đi, nhận về sẽ là E_OK/E_NOT_OK; pData mang
+       buffer đích để owner ghi thẳng dữ liệu 1024 byte vào (không thể truyền qua payload -
+       chỉ 4 byte). Owner của lệnh này luôn cố định là Sdcard_Task (xSdCommandQueue) - không
+       nhận ownerQueue làm tham số để tránh bên gọi lỡ tay truyền nhầm queue khác */
     uint32_t lu32Payload = frameIndex;
-    if (Srm_SendCommand(ownerQueue, SDCARD_CMD_GET_SINGLE_FRAME, &lu32Payload, pOutFrame, timeoutTicks) == false)
+    if (Srm_SendCommand(xSdCommandQueue, SDCARD_CMD_GET_SINGLE_FRAME, &lu32Payload, pOutFrame, timeoutTicks) == E_NOT_OK)
     {
-        return false;
+        return E_NOT_OK;
     }
 
-    /* Sau khi gửi/nhận, lu32Payload là kết quả owner trả về (1 = thành công, 0 = thất bại),
-       không còn là frameIndex đã gửi đi nữa (Srm_SendCommand ghi đè qua tham số [in/out]) */
-    return (lu32Payload != 0U);
+    /* Sau khi gửi/nhận, lu32Payload là kết quả owner trả về (E_OK/E_NOT_OK), không
+       còn là frameIndex đã gửi đi nữa (Srm_SendCommand ghi đè qua tham số [in/out]) */
+    if (lu32Payload == (uint32_t)E_OK)
+    {
+        return E_OK;
+    }
+    else
+    {
+        return E_NOT_OK;
+    }
 }

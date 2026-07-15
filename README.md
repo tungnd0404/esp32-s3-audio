@@ -133,7 +133,7 @@ Thứ tự gọi trong `app_main()` (`main/Audio.c`), **thứ tự này có ý n
 1. `Srm_Init()` — tạo mutex bảo vệ registry của SRM. Phải gọi đầu tiên, khi hệ thống còn đơn luồng (chưa có task nào chạy song song để race).
 2. `Oled_Init(&dev)` — khởi tạo I2C + SSD1306. Đặt trước các bước thao tác thẻ SD để có thể hiển thị lỗi ngay lên màn hình nếu mount/scan thất bại (xem bước 4).
 3. `Sdcard_Mount()` — mount thẻ SD (SDMMC 1-bit), lấy `esp_err_t` trả về để kiểm tra ở bước 4.
-4. `Sdcard_ScanAndCreateDb("/sdcard")` → `Sdcard_ReadDbFile()` — quét toàn bộ thẻ SD, ghi `/sdcard/songs.db`, nạp `gaSongList`/`gu16SongCount`. Nếu mount lỗi hoặc quét xong không có bài hát nào (`gu16SongCount == 0`), hiển thị thông báo lỗi lên OLED (`ssd1306_display_text`) và giữ 2 giây trước khi tiếp tục boot.
+4. `Sdcard_ScanAndCreateDb("/sdcard")` → `Sdcard_ReadDbFile()` — quét toàn bộ thẻ SD, ghi `/sdcard/songs.db`, nạp `gaSongNameList`/`gu16SongCount`. Nếu mount lỗi hoặc quét xong không có bài hát nào (`gu16SongCount == 0`), hiển thị thông báo lỗi lên OLED (`ssd1306_display_text`) và giữ 2 giây trước khi tiếp tục boot.
 5. `Button_Init()` — cấu hình GPIO ngắt cho 3 nút (đặt sau cùng trong nhóm init phần cứng để tránh xử lý nhầm trạng thái nút được giữ sẵn lúc board đang boot).
 6. `PlayerManager_Init()` — khởi tạo `gsPlayerContext` (dùng `gu16SongCount` đã có từ bước 4, nên **bước 4 bắt buộc phải chạy trước bước này**).
 7. `Mp3_Init()` — tạo `xMp3CommandQueue` (bắt buộc trước khi tạo `Mp3_Task` và trước khi `PlayerManager_Task` có thể gửi notification tới `xMp3TaskHandle`).
@@ -348,7 +348,7 @@ Toàn bộ dữ liệu runtime chính đều là **static/global**, không dùng
 | `bufferA`/`bufferB` (double buffer animation) | `driver/buffer/double_buffer.c` | 2 × 15 × 1024 byte = **30 KB** (.bss) |
 | `gau8Frame` (frame đang vẽ) | `task/oled.c` | 1024 byte |
 | `SSD1306_t::_page[8]` (framebuffer OLED) | `driver/ssd1306/ssd1306.h` | 1024 byte |
-| `gaSongList[SDCARD_MAX_SONGS]` | `task/sdcard.c` | 200 × ~68 byte ≈ 13.6 KB |
+| `gaSongNameList[SDCARD_MAX_SONGS]` | `task/sdcard.c` | 200 × ~68 byte ≈ 13.6 KB |
 | Stack mỗi task | `main/Audio.c` | 4096 byte × 4 task = 16 KB |
 
 Không có `malloc`/`free` trong pipeline audio/animation. `i2c_display_image()` (`driver/ssd1306/ssd1306_i2c_new.c`) trước đây gọi `malloc`/`free` mỗi lần ghi 1 page (tối đa ~120 lần/giây lúc phát animation) — đã thay bằng buffer tĩnh cố định 129 byte (`I2C_DISPLAY_MAX_WIDTH + 1`) để loại bỏ heap traffic khỏi hot-path này. Không dùng PSRAM/DMA-capable allocation ở bất kỳ đâu trong code hiện tại.

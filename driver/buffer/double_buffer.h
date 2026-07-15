@@ -7,6 +7,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "std_types.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -29,28 +30,30 @@
  * chỉ Sdcard_Task được gọi (trực tiếp, hoặc qua Sdcard_HandleCommand khi nhận
  * SDCARD_CMD_GET_SINGLE_FRAME từ Oled_Task - xem sdcard.c). Vì chỉ 1 thread duy nhất từng đụng vào
  * dữ liệu module này, không cần mutex bảo vệ như thiết kế cũ. Phải gọi trước
- * DoubleBuffer_Open()/DoubleBuffer_GetFrame().
+ * DoubleBuffer_LoadAll()/DoubleBuffer_GetFrame().
  * @param
  * @return
  */
 void DoubleBuffer_Init(void);
 
 /**
- * @brief DoubleBuffer_Open
+ * @brief DoubleBuffer_LoadAll
  * Mở file frame.bin của bài hát mới, nạp đầy 2 buffer A và B ban đầu (đồng bộ, chạy ngay
  * trong task gọi hàm này - hiện luôn được Sdcard_Task gọi lúc đổi bài)
  * @param path: đường dẫn file frame.bin (vd "/sdcard/song1.bin")
- * @return
+ * @return E_OK nếu mở file và nạp được ít nhất 1 buffer, E_NOT_OK nếu không mở được file
+ *         hoặc cả 2 buffer A/B đều nạp thất bại
  */
-void DoubleBuffer_Open(const char *path);
+Std_ReturnType DoubleBuffer_LoadAll(const char *path);
 
 /**
- * @brief DoubleBuffer_Close
+ * @brief DoubleBuffer_UnloadAll
  * Đóng file frame.bin đang mở, reset toàn bộ trạng thái buffer về ban đầu
  * @param
- * @return
+ * @return E_OK nếu đang có file mở và đã đóng lại, E_NOT_OK nếu trước đó không có file nào
+ *         đang mở (gpFrameFile đã NULL sẵn) - dù trả về gì, state vẫn LUÔN được reset đầy đủ
  */
-void DoubleBuffer_Close(void);
+Std_ReturnType DoubleBuffer_UnloadAll(void);
 
 /**
  * @brief DoubleBuffer_GetFrame
@@ -61,9 +64,9 @@ void DoubleBuffer_Close(void);
  * thường (không cần mutex hay round-trip SRM nào khác).
  * @param index: chỉ số frame cần lấy (0..tổng số frame của bài đang mở - 1)
  * @param pOutFrame: buffer đích nhận dữ liệu, kích thước tối thiểu FRAME_SIZE byte
- * @return true nếu lấy thành công, false nếu index ngoài phạm vi, pOutFrame NULL, hoặc đọc
+ * @return E_OK nếu lấy thành công, E_NOT_OK nếu index ngoài phạm vi, pOutFrame NULL, hoặc đọc
  *         thẻ SD thất bại
  */
-bool DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame);
+Std_ReturnType DoubleBuffer_GetFrame(uint32_t index, uint8_t *pOutFrame);
 
 #endif /* DOUBLE_BUFFER_H */

@@ -11,6 +11,7 @@
 #include "config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 
 /* ===================================================
  *  GLOBAL VARIABLES
@@ -18,6 +19,15 @@
 
 /* task handler Oled_Task */
 extern TaskHandle_t xOledTaskHandle;
+
+/* Hàng đợi lệnh dùng chung tới Oled_Task (phần tử kiểu Srm_Message_s), do Oled_Init() tạo
+   (Oled_Task là owner duy nhất của màn hình SSD1306 - kiến trúc Owner Task, xem srm.h).
+   Hiện CHƯA có lệnh nào (Srm_CommandType_e) thật sự dùng tới hạ tầng này, vì chưa có module
+   nào khác cần đụng vào SSD1306 (khác với VS1053/double buffer, vốn được nhiều task chia sẻ)
+   - dựng sẵn hạ tầng owner (queue + Oled_HandleCommand + Oled_ServicePendingCommand trong
+   oled.c) để nếu sau này có nhu cầu, chỉ cần thêm 1 case OLED_CMD_* + 1 hàm Srm_Oled<Lệnh>()
+   gửi, không phải sửa lại cấu trúc Oled_Task */
+extern QueueHandle_t xOledCommandQueue;
 
 /* ===================================================
  *  GLOBAL FUNCTION

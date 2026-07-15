@@ -27,14 +27,14 @@ RingbufHandle_t RingBuffer_Init(size_t size)
     return xRingBuf;
 }
 
-BaseType_t RingBuffer_Write(RingbufHandle_t xRingBuf, const void *pData, size_t size, TickType_t timeoutTicks)
+Std_ReturnType RingBuffer_Write(RingbufHandle_t xRingBuf, const void *pData, size_t size, TickType_t timeoutTicks)
 {
     if (xRingBuf == NULL)
     {
-        return pdFAIL;
+        return E_NOT_OK;
     }
 
-    return xRingbufferSend(xRingBuf, pData, size, timeoutTicks);
+    return ((xRingbufferSend(xRingBuf, pData, size, timeoutTicks) == pdTRUE) ? E_OK : E_NOT_OK);
 }
 
 size_t RingBuffer_Read(RingbufHandle_t xRingBuf, void **ppOutData, size_t wantedSize, TickType_t timeoutTicks)

@@ -58,8 +58,8 @@ static uint16_t SyncFrame_RequestDecodeTime(void)
 {
     uint16_t lu16DecodeTime;
 
-    if (Srm_Mp3GetDecodeTime(xMp3CommandQueue, &lu16DecodeTime,
-                              pdMS_TO_TICKS(SYNC_FRAME_REQUEST_TIMEOUT_MS)) == false)
+    if (Srm_Mp3GetDecodeTime(&lu16DecodeTime,
+                              pdMS_TO_TICKS(SYNC_FRAME_REQUEST_TIMEOUT_MS)) == E_NOT_OK)
     {
         /* Mp3_Task chưa tồn tại/đầy/timeout -> dùng tạm giá trị cũ */
         return gu16DecodePrev;
