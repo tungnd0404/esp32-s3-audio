@@ -72,7 +72,10 @@ extern QueueHandle_t xSdCommandQueue;
 /**
  * @brief Sdcard_Init
  * Khởi tạo module Sdcard: tạo xSdCommandQueue để các module khác (double_buffer.c) gửi
- * lệnh vào. Gọi trước khi tạo Sdcard_Task.
+ * lệnh vào. Gọi bởi chính Sdcard_Task lúc khởi động (đầu Sdcard_Task, trước Sdcard_Mount()),
+ * không còn gọi từ app_main() - an toàn vì xSdCommandQueue chỉ được đụng tới lần đầu qua
+ * Srm_SdcardGetSingleFrame(), CHỈ gọi trong Oled_PlayAnimation() sau khi người dùng bấm
+ * Play/Next/Prev (xem Sdcard_Task trong sdcard.c).
  * @param
  * @return
  */
@@ -80,7 +83,8 @@ void Sdcard_Init(void);
 
 /**
  * @brief Sdcard_Mount
- * Mount thẻ nhớ SD ở chế độ 1-bit (SDMMC)
+ * Mount thẻ nhớ SD - chỉ lo phần chung (đường dẫn mount, cấu hình FAT), phần chân/bus phần
+ * cứng thật sự (hiện tại: SDMMC) do driver/sdmmc/sdmmc.c đảm nhiệm, xem sdcard.c
  * @param
  * @return ESP_OK nếu mount thành công
  */

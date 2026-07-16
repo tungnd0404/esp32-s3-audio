@@ -7,78 +7,38 @@
 #include "esp_log.h"
 
 #include "ssd1306.h"
+#include "i2c_config.h"
+#include "ssd1306_config.h"
 
 #define TAG "SSD1306"
 
-#if (CONFIG_I2C_PORT_0 == ON)
-#define I2C_NUM I2C_NUM_0
-#endif
-
-#if (CONFIG_I2C_PORT_1 == ON)
-#define I2C_NUM I2C_NUM_1
-#endif
+/* I2C0_PORT_NUM dùng chung với I2c_Init() (i2c.c) - khai báo trong config/hardware/
+   i2c_config.h, không tự định nghĩa lại 1 macro riêng (I2C_NUM) ở đây nữa như bản trước (từng
+   có 1 bản sao y hệt logic chọn port của i2c.h, dễ lệch nhau nếu chỉ sửa 1 trong 2 chỗ) */
 
 #define I2C_MASTER_FREQ_HZ 400000 // I2C clock of SSD1306 can run at 400 kHz max.
-#define I2C_TICKS_TO_WAIT 100	  // Maximum ticks to wait before issuing a timeout.
+/* Đổi tên từ I2C_TICKS_TO_WAIT (bản vendor gốc) - tên cũ gợi ý đơn vị "tick" nhưng giá trị
+   này thực chất được dùng THẲNG làm tham số xfer_timeout_ms (mili-giây) của
+   i2c_master_transmit() (driver/i2c_master.h, ESP-IDF 5.x), không hề qua pdMS_TO_TICKS() ở
+   bất kỳ nơi gọi nào bên dưới - tên cũ dễ khiến người sửa sau lầm tưởng cần bọc
+   pdMS_TO_TICKS()/pdTICKS_TO_MS() quanh giá trị này, vô tình đổi sai đơn vị thời gian chờ */
+#define I2C_XFER_TIMEOUT_MS 100	  // Maximum ms to wait before issuing a timeout.
 
 // Chiều rộng tối đa 1 lần ghi page (bằng chiều rộng lớn nhất màn hình SSD1306 hỗ trợ,
-// xem CONFIG_WIDTH trong config.h) - dùng làm kích thước buffer tĩnh trong i2c_display_image()
+// xem SSD1306_WIDTH trong config/hardware/ssd1306_config.h) - dùng làm kích thước buffer
+// tĩnh trong i2c_display_image()
 #define I2C_DISPLAY_MAX_WIDTH 128
 
-void i2c_master_init(SSD1306_t * dev, int16_t sda, int16_t scl, int16_t reset)
-{
-	ESP_LOGI(TAG, "New i2c driver is used");
-	i2c_master_bus_config_t i2c_mst_config = {
-		.clk_source = I2C_CLK_SRC_DEFAULT,
-		.glitch_ignore_cnt = 7,
-		.i2c_port = I2C_NUM,
-		.scl_io_num = scl,
-		.sda_io_num = sda,
-		.flags.enable_internal_pullup = true,
-	};
-	i2c_master_bus_handle_t i2c_bus_handle;
-	ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_mst_config, &i2c_bus_handle));
+/* i2c_master_init() (API "tự tạo bus riêng" của bản vendor gốc, nhận thẳng sda/scl) đã bị
+   xoá khỏi đây - project dùng bus I2C dùng chung do I2c_Init() (driver/i2c/i2c.c) tạo 1 lần
+   trong app_main(), Oled_Task chỉ gọi ssd1306_add_i2c_device() bên dưới để add device lên bus đã có
+   sẵn, không cần API tự tạo bus riêng này. Không có call site nào tới hàm đó trong project
+   (đã grep xác nhận trước khi xoá). */
 
-	i2c_device_config_t dev_cfg = {
-		.dev_addr_length = I2C_ADDR_BIT_LEN_7,
-		.device_address = I2C_ADDRESS,
-		.scl_speed_hz = I2C_MASTER_FREQ_HZ,
-	};
-	i2c_master_dev_handle_t i2c_dev_handle;
-	ESP_ERROR_CHECK(i2c_master_bus_add_device(i2c_bus_handle, &dev_cfg, &i2c_dev_handle));
-
-	if (reset >= 0) {
-		//gpio_pad_select_gpio(reset);
-		gpio_reset_pin(reset);
-		gpio_set_direction(reset, GPIO_MODE_OUTPUT);
-		gpio_set_level(reset, 0);
-		vTaskDelay(50 / portTICK_PERIOD_MS);
-		gpio_set_level(reset, 1);
-	}
-
-	dev->_address = I2C_ADDRESS;
-	dev->_flip = false;
-	dev->_i2c_num = I2C_NUM;
-	dev->_i2c_bus_handle = i2c_bus_handle;
-	dev->_i2c_dev_handle = i2c_dev_handle;
-}
-
-void i2c_device_add(SSD1306_t * dev, i2c_port_t i2c_num, int16_t reset, uint16_t i2c_address)
+void ssd1306_add_i2c_device(SSD1306_t * dev, i2c_port_t i2c_num, int16_t reset, uint16_t i2c_address)
 {
 	ESP_LOGI(TAG, "New i2c driver is used");
 	ESP_LOGW(TAG, "Will not install i2c master driver");
-#if 0
-	i2c_master_bus_config_t i2c_mst_config = {
-		.clk_source = I2C_CLK_SRC_DEFAULT,
-		.glitch_ignore_cnt = 7,
-		.i2c_port = I2C_NUM,
-		.scl_io_num = scl,
-		.sda_io_num = sda,
-		.flags.enable_internal_pullup = true,
-	};
-	i2c_master_bus_handle_t i2c_bus_handle;
-	ESP_ERROR_CHECK(i2c_new_master_bus(&i2c_mst_config, &i2c_bus_handle));
-#endif
 
 	i2c_device_config_t dev_cfg = {
 		.dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -103,7 +63,7 @@ void i2c_device_add(SSD1306_t * dev, i2c_port_t i2c_num, int16_t reset, uint16_t
 	dev->_i2c_dev_handle = i2c_dev_handle;
 }
 
-void i2c_init(SSD1306_t * dev, int width, int height) {
+void ssd1306_i2c_send_init(SSD1306_t * dev, int width, int height) {
 	dev->_width = width;
 	dev->_height = height;
 	dev->_pages = 8;
@@ -151,7 +111,7 @@ void i2c_init(SSD1306_t * dev, int width, int height) {
 	out_buf[out_index++] = OLED_CMD_DISPLAY_ON;				// AF
 
 	esp_err_t res;
-	res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, out_index, I2C_TICKS_TO_WAIT);
+	res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, out_index, I2C_XFER_TIMEOUT_MS);
 	if (res == ESP_OK) {
 		ESP_LOGI(TAG, "OLED configured successfully");
 	} else {
@@ -168,7 +128,7 @@ void i2c_display_image(SSD1306_t * dev, int page, int seg, const uint8_t * image
 		return;
 	}
 
-	int _seg = seg + CONFIG_OFFSETX;
+	int _seg = seg + SSD1306_OFFSETX;
 	uint8_t columLow = _seg & 0x0F;
 	uint8_t columHigh = (_seg >> 4) & 0x0F;
 
@@ -191,14 +151,14 @@ void i2c_display_image(SSD1306_t * dev, int page, int seg, const uint8_t * image
 	out_buf[out_index++] = 0xB0 | _page;
 
 	esp_err_t res;
-	res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, out_index, I2C_TICKS_TO_WAIT);
+	res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, out_index, I2C_XFER_TIMEOUT_MS);
 	if (res != ESP_OK)
 		ESP_LOGE(TAG, "Could not write to device [0x%02x at %d]: %d (%s)", dev->_address, dev->_i2c_num, res, esp_err_to_name(res));
 
 	out_buf[0] = OLED_CONTROL_BYTE_DATA_STREAM;
 	memcpy(&out_buf[1], images, width);
 
-	res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, width + 1, I2C_TICKS_TO_WAIT);
+	res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, width + 1, I2C_XFER_TIMEOUT_MS);
 	if (res != ESP_OK)
 		ESP_LOGE(TAG, "Could not write to device [0x%02x at %d]: %d (%s)", dev->_address, dev->_i2c_num, res, esp_err_to_name(res));
 }
@@ -214,7 +174,7 @@ void i2c_contrast(SSD1306_t * dev, int contrast) {
 	out_buf[out_index++] = OLED_CMD_SET_CONTRAST; // 81
 	out_buf[out_index++] = _contrast;
 
-	esp_err_t res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, 3, I2C_TICKS_TO_WAIT);
+	esp_err_t res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, 3, I2C_XFER_TIMEOUT_MS);
 	if (res != ESP_OK)
 		ESP_LOGE(TAG, "Could not write to device [0x%02x at %d]: %d (%s)", dev->_address, dev->_i2c_num, res, esp_err_to_name(res));
 }
@@ -289,7 +249,7 @@ void i2c_hardware_scroll(SSD1306_t * dev, ssd1306_scroll_type_t scroll) {
 		out_buf[out_index++] = OLED_CMD_DEACTIVE_SCROLL; // 2E
 	}
 
-	esp_err_t res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, out_index, I2C_TICKS_TO_WAIT);
+	esp_err_t res = i2c_master_transmit(dev->_i2c_dev_handle, out_buf, out_index, I2C_XFER_TIMEOUT_MS);
 	if (res != ESP_OK)
 		ESP_LOGE(TAG, "Could not write to device [0x%02x at %d]: %d (%s)", dev->_address, dev->_i2c_num, res, esp_err_to_name(res));
 }

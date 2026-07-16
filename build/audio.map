@@ -281,7 +281,7 @@ esp-idf/main/libmain.a(sync_frame.c.obj)
 esp-idf/main/libmain.a(menu.c.obj)
                               esp-idf/main/libmain.a(oled.c.obj) (Menu_Draw)
 esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
-                              esp-idf/main/libmain.a(oled.c.obj) (i2c_device_add)
+                              esp-idf/main/libmain.a(oled.c.obj) (ssd1306_add_i2c_device)
 esp-idf/main/libmain.a(ssd1306.c.obj)
                               esp-idf/main/libmain.a(oled.c.obj) (ssd1306_init)
 esp-idf/main/libmain.a(ssd1306_spi.c.obj)
@@ -24110,7 +24110,7 @@ LOAD E:/ESP32-IDF-TOOL/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa
  .literal.Menu_UpdateScroll
                 0x42000c48        0x0 esp-idf/main/libmain.a(menu.c.obj)
                                   0x8 (size before relaxing)
- .literal.i2c_device_add
+ .literal.ssd1306_add_i2c_device
                 0x42000c48       0x1c esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
                                  0x4c (size before relaxing)
  .literal.i2c_init
@@ -27319,10 +27319,10 @@ LOAD E:/ESP32-IDF-TOOL/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa
                 0x4200c010       0x5e esp-idf/main/libmain.a(menu.c.obj)
                 0x4200c010                Menu_UpdateScroll
  *fill*         0x4200c06e        0x2 
- .text.i2c_device_add
+ .text.ssd1306_add_i2c_device
                 0x4200c070       0xaa esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
                                  0xba (size before relaxing)
-                0x4200c070                i2c_device_add
+                0x4200c070                ssd1306_add_i2c_device
  *fill*         0x4200c11a        0x2 
  .text.i2c_init
                 0x4200c11c      0x1bc esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
@@ -31654,7 +31654,7 @@ LOAD E:/ESP32-IDF-TOOL/Espressif/tools/xtensa-esp-elf/esp-14.2.0_20241119/xtensa
                 0x3c04e484       0x10 esp-idf/main/libmain.a(menu.c.obj)
  .rodata.i2c_master_init.str1.4
                 0x3c04e484       0xcd esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
- .rodata.i2c_device_add.str1.4
+ .rodata.ssd1306_add_i2c_device.str1.4
                 0x3c04e484       0x7b esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
  .rodata.i2c_init.str1.4
                 0x3c04e484       0x6b esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
@@ -40708,7 +40708,7 @@ i2c_common_set_pins                               esp-idf/esp_driver_i2c/libesp_
 i2c_contrast                                      esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
                                                   esp-idf/main/libmain.a(ssd1306.c.obj)
 i2c_del_master_bus                                esp-idf/esp_driver_i2c/libesp_driver_i2c.a(i2c_master.c.obj)
-i2c_device_add                                    esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
+ssd1306_add_i2c_device                                    esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
                                                   esp-idf/main/libmain.a(oled.c.obj)
 i2c_display_image                                 esp-idf/main/libmain.a(ssd1306_i2c_new.c.obj)
                                                   esp-idf/main/libmain.a(ssd1306.c.obj)

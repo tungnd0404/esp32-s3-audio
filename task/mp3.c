@@ -2,7 +2,6 @@
  *  INCLUDE FILES
  * =================================================== */
 
-#include <string.h>
 #include "mp3.h"
 #include "vs1053.h"
 #include "ring_buffer.h"
@@ -137,12 +136,20 @@ static void Mp3_ServicePendingCommand(vs1053_handle_t *pDev)
  * @param pDev: con trỏ device VS1053 (đã Mp3_Task khởi tạo)
  * @param pu32NotifyValue: [out] giá trị notification mới nhận được, chỉ có ý nghĩa khi
  *        hàm trả về true
+ * @param pbHwFailure: [out] LUÔN được gán (bất kể hàm trả về gì) - true nếu thoát vì
+ *        vs1053_send_buffer() báo lỗi giao tiếp (VS1053 không phản hồi DREQ trong
+ *        VS1053_DREQ_TIMEOUT_MS, xem vs1053.c) - tức chip coi như đã treo/mất kết nối giữa
+ *        chừng, KHÁC với các lý do thoát bình thường (Pause/đổi bài/hết bài tự nhiên). Bên gọi
+ *        (Mp3_Task) kiểm tra cờ này để chuyển sang trạng thái halt an toàn thay vì tiếp tục cố
+ *        gắng stream vào 1 chip không còn phản hồi.
  * @return true nếu thoát do có notification mới cần xử lý tiếp, false nếu gọi sai lúc
- *         playbackState không phải PLAY, xMp3RingBuffer chưa được khởi tạo, hoặc đã phát
- *         hết bài (EOF)
+ *         playbackState không phải PLAY, xMp3RingBuffer chưa được khởi tạo, đã phát hết bài
+ *         (EOF), hoặc phát hiện lỗi giao tiếp VS1053 (xem *pbHwFailure)
  */
-static bool Mp3_StreamSong(vs1053_handle_t *pDev, uint32_t *pu32NotifyValue)
+static bool Mp3_StreamSong(vs1053_handle_t *pDev, uint32_t *pu32NotifyValue, bool *pbHwFailure)
 {
+    *pbHwFailure = false;
+
     /* Phòng thủ: hàm này chỉ dành cho lúc đang PLAY, không phải nơi xử lý PAUSE */
     if (gsPlayerContext.playbackState != PLAYBACK_STATE_PLAY)
     {
@@ -192,7 +199,20 @@ static bool Mp3_StreamSong(vs1053_handle_t *pDev, uint32_t *pu32NotifyValue)
             continue;
         }
 
-        vs1053_send_buffer(pDev, lpChunk, lChunkLen);
+        if (vs1053_send_buffer(pDev, lpChunk, lChunkLen) != ESP_OK)
+        {
+            /* VS1053 không phản hồi DREQ trong thời gian cho phép - chip coi như đã treo/mất
+               kết nối giữa chừng (DREQ vốn luôn lên cao trong vài ms ở điều kiện bình thường,
+               xem VS1053_DREQ_TIMEOUT_MS trong vs1053.c), không phải lỗi tạm thời của 1 lần
+               gửi đơn lẻ. Vẫn phải trả lại item cho ring buffer trước khi thoát (BẮT BUỘC theo
+               đúng hợp đồng của RingBuffer_Read(), xem ring_buffer.h - không liên quan gì tới
+               việc gửi có thành công hay không, chỉ là giải phóng lại chỗ đã đọc) */
+            RingBuffer_ReturnItem(xMp3RingBuffer, lpChunk);
+            ESP_LOGE(TAG, "VS1053 communication lost while streaming");
+            *pbHwFailure = true;
+            return false;
+        }
+
         RingBuffer_ReturnItem(xMp3RingBuffer, lpChunk);
     }
 
@@ -224,9 +244,15 @@ static bool Mp3_HandlePause(uint32_t *pu32NotifyValue)
 /**
  * @brief Mp3_Init
  * Khởi tạo module Mp3: tạo xMp3CommandQueue để các module khác gửi lệnh vào, và
- * xMp3RingBuffer để Sdcard_Task nạp dữ liệu mp3 thô vào cho Mp3_Task rút ra phát (xem
- * mp3.h). Gọi trước khi tạo Mp3_Task VÀ trước Sdcard_Init()/Sdcard_Task (Sdcard_Task cần
- * xMp3RingBuffer đã tồn tại ngay từ lần đổi bài đầu tiên - xem thứ tự gọi trong audio.c).
+ * xMp3RingBuffer để Sdcard_Task nạp dữ liệu mp3 thô vào cho Mp3_Task rút ra phát (xem mp3.h).
+ * Gọi bởi chính Mp3_Task lúc khởi động (đầu Mp3_Task, TRƯỚC vs1053_init() - xem Mp3_Task),
+ * không còn ở app_main. Chỉ tạo 2 object trong RAM (không đụng phần cứng) nên chạy gần như
+ * tức thời - Sdcard_Task (task khác, có thể chạy song song trên core khác) chỉ ghi vào
+ * xMp3RingBuffer lúc thực sự nạp bài (Sdcard_LoadSong, xem sdcard.c), và việc đó luôn cần
+ * người dùng bấm nút trước (qua PlayerManager_Task) - độ trễ phản xạ người dùng (tối thiểu
+ * hàng chục ms) dư sức lớn hơn thời gian 2 dòng lệnh dưới đây chạy xong, nên không cần cơ chế
+ * poll/retry như Srm_OledNotifyBootStatus() (trường hợp đó 2 task tự động đua nhau ngay lúc
+ * boot, không có độ trễ người dùng làm đệm).
  * @param
  * @return
  */
@@ -287,30 +313,36 @@ void Mp3_Init(void)
  */
 void Mp3_Task(void *pvParameters)
 {
-    /* Device VS1053 - biến local của task này, không cần chia sẻ ra ngoài vì Mp3_Task là
-       nơi DUY NHẤT được đụng vào phần cứng (kiến trúc Owner Task) */
-    vs1053_handle_t lDeviceInfo;
+    /* Device VS1053 - dùng instance global gVs1053DeviceInfo (định nghĩa trong
+       config/hardware/vs1053_config.c, khởi tạo sẵn với dreq_pin/reset_pin gán theo board)
+       thay vì tự khai báo biến local. Chỉ Mp3_Task được phép
+       đụng vào (kiến trúc Owner Task) dù biến là global - quy ước, không phải giới hạn
+       compiler. XCS/XDCS không phải field của struct này - driver SPI Master tự quản lý qua
+       spics_io_num, xem vs1053_add_spi_devices() trong vs1053.c */
+
     /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
        (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
     uint32_t lu32button_evt;
     /* true = bỏ qua bước chờ notify ở vòng lặp kế tiếp, vì lu32button_evt đã có sẵn
        1 giá trị mới cần xử lý ngay (do Mp3_StreamSong vừa trả về) */
     bool lbHasPendingNotify = false;
+    /* true = Mp3_StreamSong() vừa phát hiện VS1053 mất phản hồi giữa chừng (DREQ timeout,
+       xem vs1053_send_buffer trong vs1053.c) - kiểm tra ngay sau switch bên dưới mỗi vòng lặp,
+       nếu true thì Mp3_Task chuyển sang halt êm (cùng idiom với lỗi vs1053_init() bên dưới)
+       thay vì tiếp tục cố gắng stream vào 1 chip không còn phản hồi */
+    bool lbHwFailure = false;
 
-    /* Gán chân GPIO thật của board trước khi gọi vs1053_init() - vs1053_init() đọc lại
-       các field này để tự cấu hình GPIO cho từng chân */
-    memset(&lDeviceInfo, 0, sizeof(lDeviceInfo));
-    lDeviceInfo.cs_pin = VS1053_CS_PIN;
-    lDeviceInfo.dcs_pin = VS1053_DCS_PIN;
-    lDeviceInfo.dreq_pin = VS1053_DREQ_PIN;
-    lDeviceInfo.reset_pin = VS1053_RESET_PIN;
+    /* Tạo xMp3CommandQueue/xMp3RingBuffer TRƯỚC vs1053_init() - đây là phần nhanh (chỉ cấp
+       phát RAM), làm trước để 2 object này sẵn sàng càng sớm càng tốt, không phải chờ
+       vs1053_init() (chậm - GPIO/SPI/reset phần cứng) chạy xong mới có, xem Mp3_Init() */
+    Mp3_Init();
 
     /* vs1053_init() đã tự làm đầy đủ: reset phần cứng, khởi tạo SPI, kiểm tra kết nối,
        cấu hình clock/audio/mode (SM_SDINEW|SM_LINE1) và volume mặc định (50%) - không cần
        gọi thêm vs1053_switch_to_mp3_mode() ngay sau vì nội dung gần như trùng lặp, hàm đó
        chỉ dành cho việc CHUYỂN LẠI chế độ MP3 sau này nếu có nhu cầu (vd sau khi đổi mode
        khác), không cần thiết lúc khởi động lần đầu. */
-    if (vs1053_init(&lDeviceInfo) != ESP_OK)
+    if (vs1053_init(&gVs1053DeviceInfo) != ESP_OK)
     {
         /* Không có VS1053/lỗi kết nối -> không có gì để làm, task nằm im (không return -
            1 FreeRTOS task function không được phép return), tránh gọi tiếp các hàm vs1053_*
@@ -359,15 +391,15 @@ void Mp3_Task(void *pvParameters)
                    3. vs1053_start_song(): đọc lại end_fill_byte mới, sẵn sàng cho bài MỚI
                    (Không poll xác nhận SM_CANCEL tự clear như khuyến nghị đầy đủ của
                    datasheet - đơn giản hoá chấp nhận được cho player nghe nhạc thường) */
-                vs1053_cancel_song(&lDeviceInfo);
-                vs1053_stop_song(&lDeviceInfo);
-                vs1053_start_song(&lDeviceInfo);
-                lbHasPendingNotify = Mp3_StreamSong(&lDeviceInfo, &lu32button_evt);
+                vs1053_cancel_song(&gVs1053DeviceInfo);
+                vs1053_stop_song(&gVs1053DeviceInfo);
+                vs1053_start_song(&gVs1053DeviceInfo);
+                lbHasPendingNotify = Mp3_StreamSong(&gVs1053DeviceInfo, &lu32button_evt, &lbHwFailure);
                 break;
 
             case BTN_STATE_PLAY:
                 /* Không đổi bài nên không cần reset VS1053 -> chạy thẳng stream */
-                lbHasPendingNotify = Mp3_StreamSong(&lDeviceInfo, &lu32button_evt);
+                lbHasPendingNotify = Mp3_StreamSong(&gVs1053DeviceInfo, &lu32button_evt, &lbHwFailure);
                 break;
 
             case BTN_STATE_PAUSE:
@@ -383,6 +415,20 @@ void Mp3_Task(void *pvParameters)
             default:
                 /* Sự kiện không liên quan tới phát nhạc -> bỏ qua */
                 break;
+        }
+
+        /* Kiểm tra ngay sau switch, bất kể case nào vừa chạy - lbHwFailure chỉ có thể được
+           Mp3_StreamSong() set true (Mp3_HandlePause()/các case còn lại không đụng tới, giữ
+           nguyên giá trị false đã gán tại khai báo hoặc từ lần Mp3_StreamSong() gần nhất).
+           Halt êm giống hệt lỗi vs1053_init() ở trên - VS1053 mất phản hồi giữa chừng là cùng
+           1 loại lỗi phần cứng, chỉ phát hiện muộn hơn (lúc đang stream thay vì lúc khởi động) */
+        if (lbHwFailure == true)
+        {
+            ESP_LOGE(TAG, "VS1053 hardware failure detected, Mp3_Task halted");
+            while (1)
+            {
+                vTaskDelay(pdMS_TO_TICKS(1000));
+            }
         }
     }
 }

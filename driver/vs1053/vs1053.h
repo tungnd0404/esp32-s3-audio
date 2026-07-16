@@ -10,18 +10,17 @@
 #include "esp_err.h"
 #include "std_types.h"
 #include "spi.h"
+#include "vs1053_config.h"
 
 /* ===================================================
  *  MACROS / DEFINES
  * =================================================== */
 
-/* --- Chân kết nối vật lý VS1053 - đổi tại đây nếu đấu dây khác board --- */
-#define VS1053_CS_PIN       5     /* Chip select cho lệnh SCI (XCS) */
-#define VS1053_DCS_PIN      26    /* Chip select cho dữ liệu SDI (XDCS) */
-#define VS1053_DREQ_PIN     27    /* Data request - chip kéo cao khi sẵn sàng nhận lệnh/data */
-#define VS1053_RESET_PIN    32    /* Reset phần cứng, tích cực mức thấp */
-/* Chân MOSI/MISO/SCLK không còn khai báo ở đây - dùng chung cho cả SPI_HOST_ID (không riêng
-   VS1053), xem SPI_MOSI_PIN/MISO_PIN/SCLK_PIN trong spi.h */
+/* Chân kết nối vật lý VS1053 (VS1053_XCS_PIN/XDCS_PIN/DREQ_PIN/RESET_PIN) + tốc độ SPI
+   (VS1053_SPI_INIT_CLOCK_HZ/RUN_CLOCK_HZ) khai báo tập trung trong config/hardware/
+   vs1053_config.h, không khai báo riêng ở đây nữa. Chân MOSI/MISO/SCLK dùng chung cho cả
+   SPI2_HOST_ID (không riêng VS1053), xem SPI2_MOSI_PIN/MISO_PIN/SCLK_PIN trong
+   config/hardware/spi_config.h (spi.h) */
 
 /* --- Địa chỉ thanh ghi SCI (Serial Control Interface) - theo datasheet VS1053b --- */
 #define SCI_MODE            0x00U
@@ -60,11 +59,16 @@
    getter/setter riêng vì đây là driver cấp thấp, chỉ Mp3_Task (owner phần cứng duy nhất,
    kiến trúc Owner Task - xem srm.h) được phép đụng vào */
 typedef struct {
-    /* Handle SPI do ESP-IDF cấp, tạo trong vs1053_init() (qua spi_init() nội bộ), dùng lại
-       cho mọi giao dịch SCI/SDI sau đó */
-    spi_device_handle_t spi_handle;
-    gpio_num_t cs_pin;
-    gpio_num_t dcs_pin;
+    /* Handle SPI kênh lệnh SCI (CS = VS1053_XCS_PIN, xem vs1053_config.h) do ESP-IDF cấp, tạo
+       trong vs1053_init() (qua vs1053_add_spi_devices() nội bộ) - dùng cho vs1053_write_sci()/
+       vs1053_read_sci(). CS được driver SPI Master tự động assert/deassert qua spics_io_num,
+       KHÔNG tự gpio_set_level() nữa (khác bản trước) */
+    spi_device_handle_t sci_handle;
+    /* Handle SPI kênh dữ liệu SDI (CS = VS1053_XDCS_PIN, xem vs1053_config.h), tạo cùng lúc
+       với sci_handle - dùng riêng cho vs1053_send_buffer(). VS1053 có 2 chân CS vật lý độc
+       lập cho SCI/SDI nên cần 2 spi_device_handle_t riêng biệt, không dùng chung 1 handle
+       như bản trước */
+    spi_device_handle_t sdi_handle;
     gpio_num_t dreq_pin;
     gpio_num_t reset_pin;
     /* Volume hiện tại (0-100%), lưu lại để vs1053_switch_to_mp3_mode() khôi phục đúng mức
@@ -79,6 +83,13 @@ typedef struct {
     uint8_t chip_version;
 } vs1053_handle_t;
 
+/* Instance DUY NHẤT của vs1053_handle_t trong toàn hệ thống - định nghĩa (cấp phát thật,
+   khởi tạo sẵn dreq_pin/reset_pin theo board) trong config/hardware/vs1053_config.c, Mp3_Task
+   (task/mp3.c) chỉ lấy địa chỉ dùng lại thay vì tự khai báo biến local. Chỉ Mp3_Task được
+   phép đụng vào (kiến trúc Owner Task, xem srm.h) dù biến này có external linkage - quy ước,
+   không phải giới hạn của compiler. */
+extern vs1053_handle_t gVs1053DeviceInfo;
+
 /* ===================================================
  *  GLOBAL FUNCTION
  * =================================================== */
@@ -86,26 +97,35 @@ typedef struct {
 /**
  * @brief vs1053_reset
  * Thực hiện đúng trình tự reset phần cứng qua chân RESET (kéo thấp, đợi ổn định, thả cao,
- * đợi tiếp) rồi chờ DREQ báo chip sẵn sàng nhận lệnh. CHỈ làm reset - không đụng tới SPI bus
- * hay bất kỳ thanh ghi SCI nào, nên có thể gọi lại độc lập (vd sau khi nghi ngờ chip treo)
- * mà không cần khởi tạo lại toàn bộ như vs1053_init(). Yêu cầu GPIO cs/dcs/reset/dreq đã
- * được cấu hình (gpio_config) từ trước - vs1053_init() tự lo việc này trước khi gọi hàm này.
+ * đợi tiếp) rồi chờ DREQ báo chip sẵn sàng nhận lệnh. CHỈ làm reset - không đụng tới thanh ghi
+ * SCI nào, nên có thể gọi lại độc lập (vd sau khi nghi ngờ chip treo) mà không cần khởi tạo
+ * lại toàn bộ như vs1053_init(). YÊU CẦU GPIO reset/dreq đã được cấu hình từ trước bởi
+ * Gpio_Init() (driver/gpio/gpio.c, gọi trong app_main() TRƯỚC KHI tạo Mp3_Task) VÀ 2 SPI
+ * device (sci_handle/sdi_handle) đã được add (vs1053_init() gọi vs1053_add_spi_devices() TRƯỚC hàm
+ * này) - CS của cả 2 kênh do driver SPI Master tự đưa về trạng thái nhàn rỗi (high) ngay khi
+ * add device, không cần tự gpio_set_level() như bản trước.
  * @param pDev: con trỏ device VS1053, các field pin đã được gán giá trị thật của board
- * @return ESP_OK luôn (thao tác GPIO thuần tuý, không có đường lỗi)
+ * @return ESP_OK nếu DREQ lên cao trong thời gian chờ sau khi thả RESET, ESP_ERR_TIMEOUT nếu
+ *         DREQ không phản hồi (chip không có/đấu sai dây/hỏng) - khác bản trước (luôn ESP_OK)
+ *         vì vs1053_wait_dreq() nay có giới hạn thời gian chờ, xem vs1053_wait_dreq()
  */
 esp_err_t vs1053_reset(vs1053_handle_t *pDev);
 
 /**
  * @brief vs1053_init
- * Khởi tạo đầy đủ 1 lần: cấu hình GPIO, reset phần cứng (vs1053_reset), add VS1053 làm 1 SPI
- * device trên SPI_HOST_ID ở tốc độ thấp (an toàn cho lúc chip chưa ổn định clock), kiểm tra
- * kết nối (vs1053_test_comm), cấu hình clock/audio/mode/volume mặc định, rồi mới nâng tốc độ
- * SPI lên tốc độ chạy bình thường. YÊU CẦU Spi_Init() (spi.c) đã được gọi thành công từ trước
- * (thường trong app_main(), trước khi tạo Mp3_Task) - hàm này không tự khởi tạo bus, chỉ add
- * device của riêng nó lên bus đã có sẵn (xem spi.h để biết lý do tách ra). CHỈ nên gọi đúng
- * 1 lần cho cùng 1 pDev (gọi lại sẽ add thêm 1 device SPI mới, rò rỉ handle cũ).
- * @param pDev: con trỏ device VS1053, các field pin PHẢI được gán giá trị thật của board
- *        TRƯỚC khi gọi (xem VS1053_CS_PIN/VS1053_DCS_PIN/VS1053_DREQ_PIN/VS1053_RESET_PIN)
+ * Khởi tạo đầy đủ 1 lần: add VS1053 làm 2 SPI device (sci_handle/sdi_handle) trên SPI2_HOST_ID
+ * ở tốc độ thấp (an toàn cho lúc chip chưa ổn định clock), reset phần cứng (vs1053_reset),
+ * kiểm tra kết nối (vs1053_test_comm), cấu hình clock/audio/mode/volume mặc định, rồi mới nâng
+ * tốc độ SPI lên tốc độ chạy bình thường cho cả 2 device. YÊU CẦU cả Spi_Init() (spi.c) VÀ
+ * Gpio_Init() (driver/gpio/gpio.c) đã được gọi thành công từ trước (app_main(), trước khi tạo
+ * Mp3_Task) - hàm này không tự khởi tạo bus hay cấu hình GPIO reset/dreq, chỉ add 2 device của
+ * riêng nó lên bus đã có sẵn (xem spi.h/gpio.h để biết lý do tách ra). CHỈ nên gọi đúng 1 lần
+ * cho cùng 1 pDev (gọi lại sẽ add thêm device SPI mới, rò rỉ handle cũ).
+ * @param pDev: con trỏ device VS1053 - thường truyền &gVs1053DeviceInfo (instance global duy
+ *        nhất, định nghĩa trong config/hardware/vs1053_config.c, đã gán sẵn dreq_pin/
+ *        reset_pin theo board), xem cách Mp3_Task (task/mp3.c) dùng.
+ *        XCS/XDCS không phải field của struct này - vs1053_add_spi_devices() đọc thẳng
+ *        VS1053_XCS_PIN/VS1053_XDCS_PIN từ vs1053_config.h
  * @return ESP_OK nếu khởi tạo thành công, mã lỗi esp_err_t khác nếu add device lên SPI bus lỗi
  *         (vd Spi_Init() chưa được gọi) hoặc không phát hiện được VS1053 (DREQ không lên
  *         cao / test comm thất bại)
@@ -129,13 +149,19 @@ esp_err_t vs1053_soft_reset(vs1053_handle_t *pDev);
 /**
  * @brief vs1053_wait_dreq
  * Chờ (poll, không dùng ngắt) tới khi chân DREQ lên mức cao - chip báo hiệu đã sẵn sàng nhận
- * lệnh SCI hoặc dữ liệu SDI tiếp theo. Block vô thời hạn (không timeout) - nếu chip không
- * phản hồi, hàm sẽ treo mãi; đây là hành vi đã biết, chấp nhận được vì toàn bộ codebase chỉ
- * gọi các hàm vs1053_* từ đúng 1 task (Mp3_Task, kiến trúc Owner Task - xem srm.h).
+ * lệnh SCI hoặc dữ liệu SDI tiếp theo. Chờ có giới hạn (VS1053_DREQ_TIMEOUT_MS, xem vs1053.c) -
+ * KHÔNG còn block vô thời hạn như trước: nếu chip treo/mất kết nối giữa chừng (brown-out
+ * thoáng qua, ESD, lỗi phần cứng...) khiến DREQ kẹt ở mức thấp, Mp3_Task (task duy nhất gọi
+ * các hàm vs1053_*, kiến trúc Owner Task - xem srm.h) trước đây sẽ treo vĩnh viễn tại đây,
+ * không log, không cách phục hồi. Giá trị timeout đủ rộng so với thời gian DREQ deassert
+ * thực tế theo datasheet (tối đa vài ms ngay cả lúc xử lý nặng) nên không có nguy cơ timeout
+ * giả trong điều kiện chip hoạt động bình thường.
  * @param pDev: con trỏ device VS1053
- * @return
+ * @return E_OK nếu DREQ lên cao trong thời gian chờ, E_NOT_OK nếu hết thời gian chờ (chip
+ *         không phản hồi - xem các hàm gọi vs1053_write_sci/read_sci/send_buffer/reset để biết
+ *         cách từng hàm đó phản ứng với giá trị này)
  */
-void vs1053_wait_dreq(vs1053_handle_t *pDev);
+Std_ReturnType vs1053_wait_dreq(vs1053_handle_t *pDev);
 
 /**
  * @brief vs1053_write_sci
@@ -246,9 +272,10 @@ void vs1053_stop_song(vs1053_handle_t *pDev);
  * @brief vs1053_cancel_song
  * Set bit SM_CANCEL trong SCI_MODE để yêu cầu chip huỷ ngay bài đang giải mã dở - chip sẽ tự
  * clear bit này khi đã xử lý xong yêu cầu huỷ (KHÔNG được hàm này tự poll xác nhận, bên gọi
- * tự đọc lại SCI_MODE nếu cần chắc chắn). Hiện chưa có nơi nào trong project gọi hàm này
- * (Mp3_StreamSong dùng vs1053_stop_song() cho trường hợp EOF tự nhiên) - dự phòng cho tính
- * năng "dừng giữa bài" sau này.
+ * tự đọc lại SCI_MODE nếu cần chắc chắn). Được Mp3_Task gọi khi chuyển bài GIỮA CHỪNG (case
+ * BTN_STATE_NEXT/PREV/PLAY_NEW trong mp3.c, TRƯỚC vs1053_stop_song()/vs1053_start_song()) -
+ * khác với trường hợp hết bài tự nhiên (EOF, Mp3_StreamSong chỉ gọi vs1053_stop_song() vì
+ * không có frame nào đang decode dở cần huỷ gấp).
  * @param pDev: con trỏ device VS1053
  * @return
  */

@@ -5,37 +5,29 @@
 extern "C" {
 #endif
 
-#define DEVELOPER_CONFIGURATION
+/* config.h CHỈ đóng vai trò include lại toàn bộ config con bên dưới để tiện xem tổng quan
+   toàn hệ thống ở 1 chỗ (vd người mới đọc code) - driver/task cụ thể KHÔNG include file này,
+   mà include thẳng đúng 1 hoặc vài file con mình thực sự cần (vd vs1053.c chỉ include
+   "vs1053_config.h", không include "config.h"), để dependency giữa các module luôn tường
+   minh, không vô tình kéo theo cấu hình không liên quan tới mình. Xem README/hướng dẫn
+   module hoá config để biết quy ước thêm file config mới. */
+
 /*------------------------------------------------------------
-                         CONFIG PROJECT
+                    HARDWARE CONFIGURATION
 ------------------------------------------------------------*/
-#define ON   1
-#define OFF  0
+#include "hardware/button_config.h"
+#include "hardware/ssd1306_config.h"
+#include "hardware/vs1053_config.h"
+#include "hardware/sdcard_config.h"
+#include "hardware/sdmmc_config.h"
+#include "hardware/spi_config.h"
+#include "hardware/i2c_config.h"
 
-/*------------------------I2C---------------------------- */
-#define CONFIG_I2C_PORT_0   ON
-#define CONFIG_I2C_PORT_1   OFF
-
-#define CONFIG_SDA_GPIO          8  
-#define CONFIG_SCL_GPIO         9
-#define CONFIG_RESET_GPIO      -1
-
-#define CONFIG_WIDTH         128
-#define CONFIG_HEIGHT        64
-#define CONFIG_OFFSETX  0
-
-// Gán chân nút bấm
-#define BTN_NEXT_PIN   16
-#define BTN_PREV_PIN   17
-#define BTN_PLAY_PIN   18
-
-// Định nghĩa số frame trên giây (có thể điều chỉnh)
-#define FRAME_PER_SECOND 15
-
-/* Gán chân SD card */
-#define SD_CLK   GPIO_NUM_39
-#define SD_CMD   GPIO_NUM_38
-#define SD_D0   GPIO_NUM_40
+/*------------------------------------------------------------
+                    APPLICATION CONFIGURATION
+------------------------------------------------------------*/
+#include "application/animation_config.h"
+#include "application/feature_config.h"
 
 #ifdef __cplusplus
 }

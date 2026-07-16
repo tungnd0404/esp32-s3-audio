@@ -6,6 +6,8 @@
 #include <string.h>
 #include "double_buffer.h"
 #include "esp_log.h"
+#include "srm.h"
+#include "oled.h"
 
 /* ===================================================
  *  LOCAL VARIABLES
@@ -39,6 +41,17 @@ static FILE *gpFrameFile = NULL;
 
 /* Tổng số frame của bài hiện tại (kích thước file / FRAME_SIZE) */
 static uint32_t gu32TotalFrames = 0;
+
+/* true = đã báo Oled_Task lỗi đọc thẻ SD (qua Srm_OledNotifyBootStatus) cho BÀI HIỆN TẠI rồi -
+   chặn không cho báo lặp lại. Không có cờ này, mỗi lần DoubleBuffer_GetFrame() thử nạp trước/
+   nạp gấp gặp lại đúng lỗi đọc cũ (SD card đã rút, mọi lần đọc tiếp theo đều lỗi) sẽ gửi thêm
+   1 lệnh OLED_CMD_SHOW_STATUS mới - Oled_HandleCommand() xử lý lệnh này bằng
+   vTaskDelay(OLED_BOOT_STATUS_DISPLAY_MS = 2000ms) mỗi lần, nên nếu không chặn, Oled_Task sẽ
+   liên tục đơ 2 giây/lần lặp lại vô hạn thay vì chỉ báo lỗi đúng 1 lần rồi để animation đứng
+   yên như đã biết. Reset về false mỗi khi mở bài mới (DoubleBuffer_LoadAll)/đóng bài
+   (DoubleBuffer_UnloadAll)/khởi tạo module (DoubleBuffer_Init) - cùng vòng đời với các cờ
+   trạng thái khác trong file này. */
+static bool gbReadErrorNotified = false;
 
 /* ===================================================
  *  LOCAL FUNCTION
@@ -85,6 +98,26 @@ static Std_ReturnType DoubleBuffer_LoadInternal(uint8_t au8Buffer[][FRAME_SIZE],
         size_t lReadBytes = fread(au8Buffer[li], 1, FRAME_SIZE, gpFrameFile);
         if (lReadBytes != FRAME_SIZE)
         {
+            /* Đọc thiếu byte so với FRAME_SIZE mong đợi - index đã được kiểm tra <
+               gu32TotalFrames (tính từ kích thước file thật lúc mở, xem DoubleBuffer_LoadAll)
+               nên về lý thuyết không thể thiếu byte trừ khi có LỖI ĐỌC THẬT SỰ giữa chừng (vd
+               rút thẻ SD khi đang phát - cùng dạng lỗi với Sdcard_FillMp3RingBuffer trong
+               sdcard.c, xem giải thích đầy đủ ở đó). Phân biệt bằng ferror() - nếu đúng là lỗi
+               đọc, báo cho Oled_Task hiển thị lỗi qua kênh SRM sẵn có (dùng lại đúng
+               OLED_BOOT_STATUS_SD_ERROR/Srm_OledNotifyBootStatus() vốn đã dùng lúc boot và
+               trong Sdcard_FillMp3RingBuffer - không tạo thêm command/status code mới, không
+               phá vỡ kiến trúc Owner Task/SRM) thay vì chỉ âm thầm đứng hình animation */
+            if (ferror(gpFrameFile) && (gbReadErrorNotified == false))
+            {
+                /* Chỉ báo ĐÚNG 1 LẦN cho mỗi bài (xem gbReadErrorNotified) - DoubleBuffer_GetFrame()
+                   có thể gọi lại hàm này nhiều lần liên tiếp (nạp trước/nạp gấp) và sẽ tiếp tục
+                   gặp lại đúng lỗi đọc cũ nếu thẻ SD đã rút, không chặn lặp sẽ làm Oled_Task
+                   liên tục đơ OLED_BOOT_STATUS_DISPLAY_MS (2 giây) mỗi lần xử lý lệnh */
+                ESP_LOGE(TAG, "Read error on frame stream (SD card removed/faulty?)");
+                Srm_OledNotifyBootStatus(OLED_BOOT_STATUS_SD_ERROR);
+                gbReadErrorNotified = true;
+            }
+
             ESP_LOGE(TAG, "fread failed at frame %lu", index + (uint32_t)li);
             return E_NOT_OK;
         }
@@ -172,6 +205,7 @@ void DoubleBuffer_Init(void)
     gbUsingA = true;
     gpFrameFile = NULL;
     gu32TotalFrames = 0;
+    gbReadErrorNotified = false;
 
     ESP_LOGI(TAG, "Double buffer module initialized");
 }
@@ -200,6 +234,10 @@ Std_ReturnType DoubleBuffer_LoadAll(const char *path)
         ESP_LOGE(TAG, "Cannot open %s", path);
         return E_NOT_OK;
     }
+
+    /* Bài mới -> reset cờ "đã báo lỗi đọc" của bài cũ, để lỗi đọc (nếu có) của bài mới này
+       vẫn được báo lại đúng 1 lần, không bị chặn oan bởi trạng thái sót lại từ bài trước */
+    gbReadErrorNotified = false;
 
     /* Tính tổng số frame = kích thước file / FRAME_SIZE, bằng cách seek tới cuối file lấy
        kích thước (ftell) rồi seek lại về đầu (SEEK_SET) để các lần fread sau (trong
@@ -272,6 +310,7 @@ Std_ReturnType DoubleBuffer_UnloadAll(void)
     gu32CountB = 0;
     gbUsingA = true;
     gu32TotalFrames = 0;
+    gbReadErrorNotified = false;
 
     return lRet;
 }

@@ -2,7 +2,7 @@
  *  INCLUDE FILES
  * =================================================== */
 
-#include "config.h"
+#include "animation_config.h"
 #include "sync_frame.h"
 #include "mp3.h"
 #include "srm.h"
@@ -82,10 +82,26 @@ static float SyncFrame_UpdateVirtualTime(void)
 {
     uint32_t lu32Now = (uint32_t)(esp_timer_get_time() / 1000);
 
-    /* Xử lý các mốc SYNC_FRAME_TICK_MS bị bỏ lỡ (chống trượt) */
-    while ((lu32Now - gu32LastSyncMs) >= SYNC_FRAME_TICK_MS)
+    /* Số ms thực sự đã trôi qua kể từ lần đồng bộ trước - dùng CẢ để quyết định có nên đồng
+       bộ lại hay chưa (giữ đúng nhịp poll ~SYNC_FRAME_TICK_MS, không hỏi Mp3_Task dồn dập mỗi
+       khi Oled_PlayAnimation gọi hàm này liên tục mỗi ~33ms) LẪN để tính giới hạn delta hợp lệ
+       bên dưới - xem giải thích tại sao không dùng vòng lặp "bắt kịp lưới cố định" như bản
+       trước nữa. */
+    uint32_t lu32ElapsedMs = lu32Now - gu32LastSyncMs;
+
+    if (lu32ElapsedMs >= SYNC_FRAME_TICK_MS)
     {
-        gu32LastSyncMs += SYNC_FRAME_TICK_MS;
+        /* Nhảy thẳng tới NOW thay vì cộng dồn +SYNC_FRAME_TICK_MS nhiều lần trong 1 vòng lặp
+           (bản trước): khi Oled_Task ngừng gọi hàm này một thời gian dài (Pause, hoặc
+           double-click peek MENU - nhạc vẫn phát nền nên decode time thật vẫn tăng, xem
+           player_manager.c/mp3.c), bản trước phải lặp lại hàng nghìn lần để "trả nợ" các mốc
+           bị bỏ lỡ, mỗi lần là 1 round-trip SRM đồng bộ tới Mp3_Task (SyncFrame_RequestDecodeTime)
+           - chặn Oled_Task nhiều giây ngay đúng lúc người dùng vừa bấm Play/thoát MENU, mong
+           phản hồi tức thì nhất. Chỉ cần đúng 1 lần đọc thanh ghi mỗi lần gọi hàm này là đủ -
+           không cần "đi qua" từng mốc trung gian vì không có trạng thái nào cần cập nhật ở
+           các mốc đó ngoài delta cộng dồn, và delta đã được tính đúng bằng 1 lần đọc duy nhất
+           bên dưới */
+        gu32LastSyncMs = lu32Now;
 
         /* Đọc thanh ghi decode_time (16-bit, tăng mỗi giây, có thể rollover) qua Mp3_Task */
         uint16_t lu16RawDecodeTime = SyncFrame_RequestDecodeTime();
@@ -101,10 +117,24 @@ static float SyncFrame_UpdateVirtualTime(void)
             lu16DeltaRaw = (65535U - gu16DecodePrev) + lu16RawDecodeTime + 1U;
         }
 
-        /* Giới hạn delta tối đa 1 giây (chống nhảy do nhiễu) */
-        if (lu16DeltaRaw > 1U)
+        /* Giới hạn delta tối đa THEO ĐÚNG số giây thực đã trôi qua (lu32ElapsedMs/1000 + 1,
+           làm tròn lên) - KHÔNG dùng hằng số cố định "1 giây" như bản trước nữa. Hằng số cố
+           định chỉ đúng khi giả định luôn poll đều đặn mỗi ~100ms (delta hợp lệ tối đa lúc đó
+           đúng là 1); nhưng khi khoảng cách giữa 2 lần gọi lớn hơn nhiều (Pause dài, hoặc peek
+           MENU trong khi nhạc vẫn phát nền khiến decode time thật tăng vài giây), hằng số "1"
+           sẽ cắt mất phần chênh lệch THẬT SỰ đã xảy ra, khiến gu16DecodeTotal (và do đó
+           animation) lệch sau audio VĨNH VIỄN cho tới khi đổi bài (SyncFrame_Init() reset lại
+           mốc) - đúng nguyên nhân animation mất đồng bộ sau khi peek MENU. Giới hạn theo elapsed
+           wall-clock vẫn giữ nguyên tác dụng chống nhiễu ban đầu (1 lần đọc SPI glitch sinh giá
+           trị rác chỉ có thể bị tin tối đa đúng bằng số giây thực đã trôi qua, không hơn) */
+        uint32_t lu32MaxDelta = (lu32ElapsedMs / 1000U) + 1U;
+        if (lu32MaxDelta > 0xFFFFU)
         {
-            lu16DeltaRaw = 1U;
+            lu32MaxDelta = 0xFFFFU;
+        }
+        if ((uint32_t)lu16DeltaRaw > lu32MaxDelta)
+        {
+            lu16DeltaRaw = (uint16_t)lu32MaxDelta;
         }
 
         /* Cập nhật giá trị raw lần trước */
@@ -172,7 +202,7 @@ uint32_t SyncFrame_GetFrameIndex(void)
     }
 
     /* Chỉ số frame = số giây đã phát * số frame/giây */
-    uint32_t lu32FrameIndex = (uint32_t)(lf32VirtualTime * FRAME_PER_SECOND);
+    uint32_t lu32FrameIndex = (uint32_t)(lf32VirtualTime * ANIMATION_FPS);
 
     return lu32FrameIndex;
 }

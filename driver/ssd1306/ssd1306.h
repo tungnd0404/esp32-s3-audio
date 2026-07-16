@@ -8,9 +8,7 @@
 #include "driver/i2c.h"
 #endif
 
-#include "config.h"
-
-// Following definitions are bollowed from 
+// Following definitions are bollowed from
 // http://robotcantalk.blogspot.com/2015/03/interfacing-arduino-with-ssd1306-driven.html
 
 /* Control byte for i2c
@@ -125,6 +123,14 @@ extern "C"
 {
 #endif
 
+/* Instance DUY NHẤT của SSD1306_t trong toàn hệ thống - định nghĩa (cấp phát thật) trong
+   config/hardware/ssd1306_config.c, Oled_Task (task/oled.c) chỉ lấy địa chỉ dùng lại thay vì
+   tự khai báo biến local - cùng khuôn mẫu gVs1053DeviceInfo (vs1053.h/vs1053_config.c). Chỉ
+   Oled_Task được phép đụng vào (kiến trúc Owner Task, xem srm.h) dù biến này có external
+   linkage - quy ước, không phải giới hạn của compiler. Global storage tự động zero-init nên
+   không cần memset() trước khi dùng. */
+extern SSD1306_t gSsd1306DeviceInfo;
+
 void ssd1306_init(SSD1306_t * dev, int width, int height);
 int ssd1306_get_width(SSD1306_t * dev);
 int ssd1306_get_height(SSD1306_t * dev);
@@ -164,9 +170,12 @@ void ssd1306_display_rotate_text(SSD1306_t * dev, int seg, const char * text, in
 void ssd1306_dump(SSD1306_t dev);
 void ssd1306_dump_page(SSD1306_t * dev, int page, int seg);
 
-void i2c_master_init(SSD1306_t * dev, int16_t sda, int16_t scl, int16_t reset);
-void i2c_device_add(SSD1306_t * dev, i2c_port_t i2c_num, int16_t reset, uint16_t i2c_address);
-void i2c_init(SSD1306_t * dev, int width, int height);
+void ssd1306_add_i2c_device(SSD1306_t * dev, i2c_port_t i2c_num, int16_t reset, uint16_t i2c_address);
+/* Gửi chuỗi lệnh khởi tạo/cấu hình màn hình SSD1306 qua I2C (mux ratio, contrast, memory
+   addr mode, bật display...) - đổi tên từ "i2c_init" (bản vendor gốc) vì tên đó dễ nhầm với
+   I2c_Init() của project (driver/i2c/i2c.c, khởi tạo BUS I2C dùng chung) dù 2 hàm không liên
+   quan gì tới nhau - hàm này chỉ đụng tới 1 device đã add sẵn, không đụng bus */
+void ssd1306_i2c_send_init(SSD1306_t * dev, int width, int height);
 void i2c_display_image(SSD1306_t * dev, int page, int seg, const uint8_t * images, int width);
 void i2c_contrast(SSD1306_t * dev, int contrast);
 void i2c_hardware_scroll(SSD1306_t * dev, ssd1306_scroll_type_t scroll);
@@ -178,7 +187,10 @@ bool spi_master_write_byte(spi_device_handle_t SPIHandle, const uint8_t* Data, s
 bool spi_master_write_commands(SSD1306_t * dev, const uint8_t * Commands, size_t DataLength );
 bool spi_master_write_command(SSD1306_t * dev, uint8_t Command );
 bool spi_master_write_data(SSD1306_t * dev, const uint8_t* Data, size_t DataLength );
-void spi_init(SSD1306_t * dev, int width, int height);
+/* Gửi chuỗi lệnh khởi tạo/cấu hình màn hình SSD1306 qua SPI - cùng lý do đổi tên khỏi
+   "spi_init" (bản vendor gốc) như ssd1306_i2c_send_init() ở trên, tránh nhầm với Spi_Init()
+   của project (driver/spi/spi.c, khởi tạo BUS SPI dùng chung) */
+void ssd1306_spi_send_init(SSD1306_t * dev, int width, int height);
 void spi_display_image(SSD1306_t * dev, int page, int seg, const uint8_t * images, int width);
 void spi_contrast(SSD1306_t * dev, int contrast);
 void spi_hardware_scroll(SSD1306_t * dev, ssd1306_scroll_type_t scroll);

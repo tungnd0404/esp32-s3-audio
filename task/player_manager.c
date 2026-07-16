@@ -3,6 +3,7 @@
  * =================================================== */
 
 #include "player_manager.h"
+#include "feature_config.h"
 #include "button.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/event_groups.h"
@@ -96,8 +97,9 @@ void PlayerManager_Init(void)
 
 /**
  * @brief PlayerManager_Task
- * Task điều khiển trung tâm của hệ thống. Chờ task notification (Button_EventType_e)
- * gửi từ button ISR để nhận biết nút Next/Prev/Play vừa được bấm, sau đó cập nhật
+ * Task điều khiển trung tâm của hệ thống. Chờ task notification (bitmask BTN1_BIT/BTN2_BIT/
+ * BTN3_BIT, gộp bằng eSetBits - xem button.c) gửi từ button ISR để nhận biết nút Next/Prev/
+ * Play vừa được bấm, sau đó cập nhật
  * gsPlayerContext (mainState, buttonState, playbackState, cursor, currentSong) và báo lại
  * cho các task liên quan (qua task notification, truyền thẳng PlayerManager_ButtonStateType_e):
  * - Oled_Task: luôn được báo cho MỌI thay đổi (vẽ lại menu / đổi bài / tiếp tục hay tạm
@@ -117,7 +119,16 @@ void PlayerManager_Init(void)
  */
 void PlayerManager_Task(void *arg)
 {
-    /* Giá trị sự kiện nút bấm nhận được từ button ISR (BTN_EVENT_NEXT/PREV/PLAY) */
+    /* Khởi tạo state system TRƯỚC KHI vào vòng lặp chính - gsPlayerContext.mainState/
+       buttonState chỉ được chính task này đọc/ghi (không task nào khác đọc trực tiếp từ
+       struct, chỉ nhận qua giá trị notification PlayerManager_Task tự gửi), playbackState
+       chỉ được Oled_Task/Mp3_Task đọc bên trong Oled_PlayAnimation()/Mp3_StreamSong() - cả 2
+       hàm đó chỉ chạy sau khi nhận notification từ chính task này, tức chắc chắn sau dòng
+       này - nên gọi ở đây an toàn, không cần gọi từ app_main() nữa */
+    PlayerManager_Init();
+
+    /* Giá trị sự kiện nút bấm nhận được từ button ISR - bitmask BTN1_BIT/BTN2_BIT/BTN3_BIT
+       (Next/Prev/Play, xem player_manager.h), có thể có nhiều hơn 1 bit cùng lúc */
     uint32_t lu32button_evt;
     /* Lưu thời điểm click PLAY gần nhất để phát hiện double click, static để giữ giá trị qua các vòng lặp */
     static TickType_t lu32LastClickTime = 0;
@@ -143,13 +154,22 @@ void PlayerManager_Task(void *arg)
         /* Chờ button ISR gửi notification tới, hoặc hết thời gian chờ (chỉ khi lbAutoReturnPending == true) */
         if (xTaskNotifyWait(0, UINT32_MAX, &lu32button_evt, lu32WaitTicks) == pdTRUE)
         {
-            switch ((Button_EventType_e)lu32button_evt)
+            /* lu32button_evt giờ là BITMASK các nút vừa được bấm (BTN1_BIT=Next/BTN2_BIT=Prev/
+               BTN3_BIT=Play, gộp bằng eSetBits ở button.c) - CÓ THỂ có nhiều hơn 1 bit cùng lúc
+               nếu 2 nút khác nhau được bấm gần như đồng thời trước khi task kịp thức dậy xử lý
+               (xem giải thích chi tiết trong button.c). Xử lý TỪNG bit độc lập theo thứ tự cố
+               định Next -> Prev -> Play thay vì switch trên 1 giá trị duy nhất như trước - đảm
+               bảo không sự kiện nào bị bỏ sót dù bao nhiêu bit cùng về 1 lượt (khác hành vi ghi
+               đè bằng eSetValueWithOverwrite trước đây, có thể làm mất hẳn 1 lần bấm). Thứ tự
+               xử lý khi CẢ 2 bit khác nhau cùng về 1 lượt (hiếm, chỉ xảy ra khi 2 nút vật lý bị
+               bấm trong cùng vài ms) không đảm bảo phản ánh đúng thứ tự thời gian thực đã bấm -
+               đánh đổi chấp nhận được, quan trọng là không bit nào bị mất hẳn. */
+            if ((lu32button_evt & BTN1_BIT) != 0U)
             {
-                case BTN_EVENT_NEXT:
                     /* Đang ở MENU: nút Next dùng để di chuyển con trỏ xuống dưới danh sách */
                     if (gsPlayerContext.mainState == MAIN_STATE_MENU)
                     {
-                        #if defined DEVELOPER_CONFIGURATION
+                        #if defined DEBUG_PRINTF_ENABLED
                             printf("BUTTON DOWN\n");
                         #endif
                         /* Tính lại vị trí con trỏ mới (đi xuống, quay vòng khi hết danh sách) */
@@ -165,7 +185,7 @@ void PlayerManager_Task(void *arg)
                     /* Đang PLAYING: nút Next dùng để chuyển sang bài kế tiếp */
                     else
                     {
-                        #if defined DEVELOPER_CONFIGURATION
+                        #if defined DEBUG_PRINTF_ENABLED
                             printf("BUTTON NEXT\n");
                         #endif
                         /* Lưu trạng thái button */
@@ -183,13 +203,14 @@ void PlayerManager_Task(void *arg)
                         /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                         gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
-                    break;
+            }
 
-                case BTN_EVENT_PREV:
+            if ((lu32button_evt & BTN2_BIT) != 0U)
+            {
                     /* Đang ở MENU: nút Prev dùng để di chuyển con trỏ lên trên danh sách */
                     if (gsPlayerContext.mainState == MAIN_STATE_MENU)
                     {
-                        #if defined DEVELOPER_CONFIGURATION
+                        #if defined DEBUG_PRINTF_ENABLED
                         printf("BUTTON UP\n");
                         #endif
                         /* Tính lại vị trí con trỏ mới (đi lên, quay vòng khi về đầu danh sách) */
@@ -204,7 +225,7 @@ void PlayerManager_Task(void *arg)
                     /* Đang PLAYING: nút Prev dùng để quay lại bài trước đó */
                     else
                     {
-                        #if defined DEVELOPER_CONFIGURATION
+                        #if defined DEBUG_PRINTF_ENABLED
                         printf("BUTTON PREV\n");
                         #endif
                         /* Lưu trạng thái button */
@@ -222,17 +243,26 @@ void PlayerManager_Task(void *arg)
                         /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                         gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
-                    break;
+            }
 
-                case BTN_EVENT_PLAY:
-                {
+            if ((lu32button_evt & BTN3_BIT) != 0U)
+            {
                     /* Thời điểm hiện tại, dùng để so sánh phát hiện double click */
                     TickType_t lnow = xTaskGetTickCount();
 
-                    /* Đang ở MENU: nút Play dùng để chọn bài tại vị trí cursor và bắt đầu phát */
-                    if (gsPlayerContext.mainState == MAIN_STATE_MENU)
+                    /* Đang ở MENU: nút Play dùng để chọn bài tại vị trí cursor và bắt đầu phát -
+                       CHỈ khi có ít nhất 1 bài hợp lệ (gsPlayerContext.totalSong != 0). Không
+                       guard trước đây khiến hệ thống vẫn chuyển mainState sang PLAYING với
+                       currentSong=0 dù không tồn tại bài hát nào (thẻ trống, thẻ lỗi, hoặc
+                       không bài nào có đủ cặp .mp3/.bin - xem Sdcard_ScanAndCreateDb trong
+                       sdcard.c), kẹt người dùng ở màn hình "đang phát" trống rỗng không lối ra
+                       rõ ràng (phải biết double-click - thao tác không hiển nhiên - mới thoát
+                       được về MENU). totalSong == 0 thì bỏ qua thao tác Play hoàn toàn, không
+                       làm gì (rơi qua nhánh else if PLAYING cũng không khớp vì mainState vẫn
+                       là MENU) */
+                    if ((gsPlayerContext.mainState == MAIN_STATE_MENU) && (gsPlayerContext.totalSong != 0U))
                     {
-                        #if defined DEVELOPER_CONFIGURATION
+                        #if defined DEBUG_PRINTF_ENABLED
                         printf("BUTTON SELECT AND START PLAYING\n");
                         #endif
                         /* Chuyển sang trạng thái Main là PLAYING */
@@ -263,7 +293,7 @@ void PlayerManager_Task(void *arg)
                         /* Double click: khoảng cách giữa 2 lần bấm nhỏ hơn DOUBLE_CLICK_TIME */
                         if ((lu32LastClickTime != 0) && ((lnow - lu32LastClickTime) < DOUBLE_CLICK_TIME))
                         {
-                            #if defined DEVELOPER_CONFIGURATION
+                            #if defined DEBUG_PRINTF_ENABLED
                             printf("DOUBLE CLICK -> MENU\n");
                             #endif
                             /* Lưu lại trạng thái phát nhạc hiện tại để lát auto-return khôi phục đúng
@@ -285,12 +315,12 @@ void PlayerManager_Task(void *arg)
                         /* Single click: play/pause bài đang phát -> không đổi bài, chỉ báo oled_task tiếp tục/tạm dừng animation */
                         else
                         {
-                            #if defined DEVELOPER_CONFIGURATION
+                            #if defined DEBUG_PRINTF_ENABLED
                             printf("SINGLE CLICK\n");
                             #endif
                             if (gsPlayerContext.playbackState == PLAYBACK_STATE_PLAY)
                             {
-                                #if defined DEVELOPER_CONFIGURATION
+                                #if defined DEBUG_PRINTF_ENABLED
                                 printf("PAUSE\n");
                                 #endif
                                 /* Ghi nhận hành động vừa bấm là PAUSE (chỉ mang tính thời điểm) */
@@ -304,7 +334,7 @@ void PlayerManager_Task(void *arg)
                             }
                             else
                             {
-                                #if defined DEVELOPER_CONFIGURATION
+                                #if defined DEBUG_PRINTF_ENABLED
                                 printf("PLAY\n");
                                 #endif
                                 /* Ghi nhận hành động vừa bấm là PLAY (chỉ mang tính thời điểm) */
@@ -322,17 +352,12 @@ void PlayerManager_Task(void *arg)
                             lu32LastClickTime = lnow;
                         }
                     }
-                    break;
-                }
-
-                default:
-                    break;
             }
         }
         /* Không nhận được notification nào trong lu32WaitTicks -> chỉ xảy ra khi đang chờ auto-return */
         else if (lbAutoReturnPending == true)
         {
-            #if defined DEVELOPER_CONFIGURATION
+            #if defined DEBUG_PRINTF_ENABLED
             printf("MENU IDLE TIMEOUT -> BACK TO PLAYING\n");
             #endif
             /* Hết 3s không thao tác gì ở MENU -> tự quay lại giao diện PLAYING của bài đang phát */

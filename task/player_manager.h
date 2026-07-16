@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "driver/gpio.h"
-#include "config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -92,7 +91,12 @@ extern PlayerManager__PlayerContextType_s gsPlayerContext;
 
 /**
  * @brief PlayerManager_Init
- * Khởi tạo player manager
+ * Khởi tạo player manager: set state ban đầu (gsPlayerContext.mainState/buttonState/
+ * playbackState). Gọi bởi chính PlayerManager_Task lúc khởi động (đầu task, trước vòng lặp
+ * chính), không còn gọi từ app_main() - an toàn vì mainState/buttonState chỉ được chính
+ * PlayerManager_Task đọc/ghi, còn playbackState chỉ được Oled_Task/Mp3_Task đọc bên trong
+ * Oled_PlayAnimation()/Mp3_StreamSong(), cả 2 hàm đó chỉ chạy sau khi nhận notification từ
+ * chính PlayerManager_Task (xem PlayerManager_Task trong player_manager.c).
  * @param
  * @return
  */

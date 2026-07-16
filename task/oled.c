@@ -4,6 +4,8 @@
 
 #include "ssd1306.h"
 #include "oled.h"
+#include "ssd1306_config.h"
+#include "animation_config.h"
 #include "player_manager.h"
 #include "menu.h"
 #include "double_buffer.h"
@@ -11,13 +13,16 @@
 #include "sdcard.h"
 #include "srm.h"
 #include "i2c.h"
+#include "button.h"
+#include "esp_log.h"
 
 /* ===================================================
  *  MACROS / DEFINES
  * =================================================== */
 
-/* Tốc độ khung hình animation thật (dữ liệu frame.bin), lấy theo FRAME_PER_SECOND (config.h) */
-#define OLED_ANIMATION_FRAME_INTERVAL_MS   (1000U / FRAME_PER_SECOND)
+/* Tốc độ khung hình animation thật (dữ liệu frame.bin), lấy theo ANIMATION_FPS
+   (config/application/animation_config.h) */
+#define OLED_ANIMATION_FRAME_INTERVAL_MS   (1000U / ANIMATION_FPS)
 
 /* Chu kỳ vTaskDelay giữa các lần poll trong Oled_PlayAnimation: vẫn phải delay để nhường
    CPU cho task khác, nhưng poll nhanh gấp đôi tốc độ frame thật để bắt kịp thời điểm
@@ -66,6 +71,9 @@ QueueHandle_t xOledCommandQueue = NULL;
 /* ===================================================
  *  LOCAL VARIABLES
  * =================================================== */
+
+/* Tag dùng cho ESP_LOGx trong module này */
+static const char *TAG = "OLED";
 
 /* Buffer chứa 1 frame animation đọc từ double buffer trước khi vẽ lên màn hình. Để static
    (thay vì biến local trong Oled_PlayAnimation) là CỐ Ý: chỉ Oled_Task đụng vào buffer này
@@ -247,21 +255,33 @@ static bool Oled_DrawPauseIcon(SSD1306_t *dev, uint32_t *pu32NotifyValue)
 
 /**
  * @brief Oled_Init
- * Add SSD1306 làm 1 I2C device trên I2C_PORT_NUM (xem i2c.h) rồi khởi tạo màn hình, tạo
+ * Add SSD1306 làm 1 I2C device trên I2C0_PORT_NUM (xem i2c.h) rồi khởi tạo màn hình, tạo
  * xOledCommandQueue để các module khác (nếu sau này có) gửi lệnh vào. KHÔNG tự khởi tạo bus -
  * I2c_Init() (i2c.c) PHẢI được gọi thành công từ trước (app_main(), trước khi tạo Oled_Task)
  * vì bus là hạ tầng dùng chung, không thuộc riêng SSD1306 (cùng khuôn mẫu tách Spi_Init() ra
  * khỏi vs1053_init(), xem spi.h/vs1053.c - sau này device I2C khác chỉ cần tự add lên cùng
  * bus này, không cần khởi tạo lại). Gọi bởi chính Oled_Task lúc khởi động.
  * @param dev: con trỏ device SSD1306
- * @return
+ * @return E_OK nếu thành công, E_NOT_OK nếu gI2cBusHandle vẫn NULL (I2c_Init() thất bại) -
+ *         xem Oled_Task để biết cách xử lý
  */
-void Oled_Init(SSD1306_t *dev)
+Std_ReturnType Oled_Init(SSD1306_t *dev)
 {
+    /* I2c_Init() (main/audio.c) thất bại từ trước -> gI2cBusHandle vẫn NULL. Trả lỗi NGAY,
+       KHÔNG gọi ssd1306_add_i2c_device() - hàm đó dùng ESP_ERROR_CHECK() nội bộ
+       (driver/ssd1306/ssd1306_i2c.c) nên add device lên bus NULL sẽ trigger abort()/reboot
+       toàn hệ thống thay vì chỉ riêng Oled_Task gặp lỗi như các task khác (vd Mp3_Task khi
+       vs1053_init() thất bại) */
+    if (gI2cBusHandle == NULL)
+    {
+        return E_NOT_OK;
+    }
+
     dev->_i2c_bus_handle = gI2cBusHandle;
-    i2c_device_add(dev, I2C_PORT_NUM, CONFIG_RESET_GPIO, I2C_ADDRESS);
-    ssd1306_init(dev, CONFIG_WIDTH, CONFIG_HEIGHT);
+    ssd1306_add_i2c_device(dev, I2C0_PORT_NUM, SSD1306_RESET_PIN, I2C_ADDRESS);
+    ssd1306_init(dev, SSD1306_WIDTH, SSD1306_HEIGHT);
     xOledCommandQueue = xQueueCreate(OLED_COMMAND_QUEUE_LENGTH, sizeof(Srm_Message_s));
+    return E_OK;
 }
 
 /**
@@ -300,13 +320,6 @@ void Oled_Task(void *pvParameters)
 {
     (void)pvParameters;
 
-    /* Device SSD1306 - biến local của task này, không cần chia sẻ ra ngoài vì Oled_Task là
-       nơi DUY NHẤT được đụng vào màn hình (kiến trúc Owner Task), cùng khuôn mẫu
-       lDeviceInfo trong Mp3_Task (mp3.c) */
-    SSD1306_t lDev;
-    /* Con trỏ dùng xuyên suốt phần còn lại của task, tránh phải sửa lại toàn bộ lời gọi
-       Oled_PlayAnimation(dev, ...)/Menu_Draw(dev,...) bên dưới */
-    SSD1306_t *dev = &lDev;
     /* Giá trị notification nhận từ PlayerManager_Task, thực chất là gsPlayerContext.buttonState
        (kiểu PlayerManager_ButtonStateType_e) tại thời điểm gửi, ép kiểu lại khi cần dùng */
     uint32_t lu32button_evt;
@@ -314,7 +327,21 @@ void Oled_Task(void *pvParameters)
        1 giá trị mới cần xử lý ngay (do Oled_PlayAnimation vừa trả về) */
     bool lbHasPendingNotify = false;
 
-    Oled_Init(dev);
+    if (Oled_Init(&gSsd1306DeviceInfo) != E_OK)
+    {
+        /* gI2cBusHandle vẫn NULL (I2c_Init() thất bại từ trước, xem app_main() trong
+           main/audio.c) - task nằm im (không return - 1 FreeRTOS task function không được
+           phép return), cùng idiom với Mp3_Task khi vs1053_init() thất bại (xem mp3.c). Chú
+           ý: Button_Init() (gọi bên dưới sau Menu_Draw()) sẽ KHÔNG chạy trong trường hợp này -
+           chấp nhận được vì trước đây (chưa sửa) hệ thống còn tệ hơn: I2c_Init() thất bại
+           khiến toàn bộ hệ thống abort()/reboot ngay tại Oled_Init(), cũng khiến Button_Init()
+           không bao giờ chạy, chỉ khác là reboot liên tục thay vì dừng ổn định như bây giờ */
+        ESP_LOGE(TAG, "Oled_Init failed - I2C bus not ready, Oled_Task halted");
+        while (1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
 
     /* Chờ đúng 1 lần lúc boot xem Sdcard_Task có báo lỗi mount/không tìm thấy bài hát nào
        không (xem Srm_OledNotifyBootStatus, srm.c), hiển thị vài giây nếu có trước khi vẽ
@@ -325,11 +352,30 @@ void Oled_Task(void *pvParameters)
     Srm_Message_s lBootStatusMsg;
     if (xQueueReceive(xOledCommandQueue, &lBootStatusMsg, pdMS_TO_TICKS(OLED_BOOT_STATUS_WAIT_MS)) == pdTRUE)
     {
-        Oled_HandleCommand(dev, &lBootStatusMsg);
+        Oled_HandleCommand(&gSsd1306DeviceInfo, &lBootStatusMsg);
     }
 
     /* Vẽ menu lần đầu khi khởi động, trước khi vào vòng lặp chính */
-    Menu_Draw(dev);
+    Menu_Draw(&gSsd1306DeviceInfo);
+
+    /* Bật ngắt nút bấm NGAY SAU KHI menu đã vẽ xong - nếu bật sớm hơn (vd ngay đầu
+       Oled_Task, trước Oled_Init()/Menu_Draw()), người dùng bấm nút đúng lúc đó sẽ được
+       PlayerManager_Task xử lý (di chuyển cursor, gửi notify vẽ lại menu...) trong khi màn
+       hình còn chưa có gì để vẽ lại - không crash nhưng vô nghĩa/dễ rối. Đặt ở đây thay vì
+       app_main() (như code cũ) để đảm bảo có phản hồi thị giác ngay từ lần bấm đầu tiên.
+
+       AN TOÀN vì Oled_Task LUÔN được tạo SAU CÙNG trong 4 task (xem thứ tự
+       xTaskCreatePinnedToCore trong app_main(), main/audio.c) - tại thời điểm dòng này chạy,
+       cả 4 xTaskCreatePinnedToCore() đã return từ lâu (xTaskCreatePinnedToCore() gán handle
+       ĐỒNG BỘ trước khi return, không phải sau khi task mới bắt đầu chạy), nên
+       xPlayerManagerTaskHandle/xSdTaskHandle/xMp3TaskHandle/xOledTaskHandle chắc chắn đã hợp
+       lệ - các ISR nút bấm (button.c) gọi xTaskNotifyFromISR(xPlayerManagerTaskHandle, ...)
+       và PlayerManager_Task lúc xử lý lại gọi tiếp xTaskNotify(xOledTaskHandle/xSdTaskHandle/
+       xMp3TaskHandle, ...) sẽ không bao giờ nhận tham số NULL.
+       NẾU SAU NÀY ĐỔI THỨ TỰ TẠO TASK (Oled_Task không còn là task cuối cùng), PHẢI dời
+       Button_Init() trở lại app_main() (sau toàn bộ 4 xTaskCreatePinnedToCore()) để giữ đúng
+       bất biến an toàn này. */
+    Button_Init();
 
     /* Vòng lặp chính của task, chạy vô hạn cho tới khi thiết bị tắt nguồn */
     while (1)
@@ -355,18 +401,18 @@ void Oled_Task(void *pvParameters)
                 SyncFrame_Init();
                 /* Chạy vòng vẽ animation cho bài mới; nếu bị ngắt giữa chừng do có notify khác
                    tới thì lbHasPendingNotify sẽ được set true để xử lý tiếp ở vòng lặp kế */
-                lbHasPendingNotify = Oled_PlayAnimation(dev, &lu32button_evt);
+                lbHasPendingNotify = Oled_PlayAnimation(&gSsd1306DeviceInfo, &lu32button_evt);
                 break;
 
             case BTN_STATE_PLAY:
                 /* Không đổi bài nên không cần SyncFrame_Init() lại -> chạy thẳng animation */
-                lbHasPendingNotify = Oled_PlayAnimation(dev, &lu32button_evt);
+                lbHasPendingNotify = Oled_PlayAnimation(&gSsd1306DeviceInfo, &lu32button_evt);
                 break;
 
             case BTN_STATE_PAUSE:
                 /* Không đổi bài, chỉ tạm dừng -> vẽ thêm ký hiệu PAUSE lên frame hiện tại
                    (TODO: xem Oled_DrawPauseIcon) thay vì tiếp tục animation */
-                lbHasPendingNotify = Oled_DrawPauseIcon(dev, &lu32button_evt);
+                lbHasPendingNotify = Oled_DrawPauseIcon(&gSsd1306DeviceInfo, &lu32button_evt);
                 break;
 
             case BTN_STATE_UP:
@@ -378,7 +424,7 @@ void Oled_Task(void *pvParameters)
                 /* Tính lại cửa sổ cuộn (gi32StartIndex) theo cursor hiện tại */
                 Menu_UpdateScroll();
                 /* Vẽ lại toàn bộ danh sách bài hát lên màn hình */
-                Menu_Draw(dev);
+                Menu_Draw(&gSsd1306DeviceInfo);
                 break;
         }
     }

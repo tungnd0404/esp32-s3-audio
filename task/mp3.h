@@ -57,8 +57,12 @@ extern volatile bool gbMp3StreamEof;
 /**
  * @brief Mp3_Init
  * Khởi tạo module Mp3: tạo xMp3CommandQueue để các module khác gửi lệnh vào, và
- * xMp3RingBuffer để Sdcard_Task nạp dữ liệu mp3 thô vào cho Mp3_Task rút ra phát.
- * Gọi trước khi tạo Mp3_Task VÀ trước Sdcard_Init()/Sdcard_Task (xem audio.c).
+ * xMp3RingBuffer để Sdcard_Task nạp dữ liệu mp3 thô vào cho Mp3_Task rút ra phát. Gọi bởi
+ * chính Mp3_Task lúc khởi động (đầu Mp3_Task, trước vs1053_init()), không còn gọi từ
+ * app_main() - an toàn dù Sdcard_Task (task khác, core khác) khởi động song song, vì
+ * Sdcard_Task chỉ ghi vào xMp3RingBuffer lúc thực sự nạp bài (Sdcard_LoadSong), luôn cần
+ * người dùng bấm nút trước - độ trễ phản xạ người dùng dư sức lớn hơn thời gian hàm này chạy
+ * xong (xem Mp3_Task trong mp3.c).
  * @param
  * @return
  */

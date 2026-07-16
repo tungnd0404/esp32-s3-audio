@@ -9,9 +9,10 @@
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
-#include "driver/sdmmc_host.h"
+#include "sdmmc.h"
 #include "sdcard.h"
-#include "config.h"
+#include "sdcard_config.h"
+#include "feature_config.h"
 #include "player_manager.h"
 #include "double_buffer.h"
 #include "ring_buffer.h"
@@ -23,8 +24,10 @@
  *  MACROS / DEFINES
  * =================================================== */
 
-/* Đường dẫn file database chứa danh sách bài hát, tạo bởi Sdcard_ScanAndCreateDb() */
-#define SDCARD_DB_PATH              "/sdcard/songs.db"
+/* Đường dẫn file database chứa danh sách bài hát, tạo bởi Sdcard_ScanAndCreateDb() - ghép từ
+   SDCARD_MOUNT_POINT (sdcard_config.h) thay vì hardcode lại "/sdcard", tránh 2 nơi cùng chứa
+   1 chuỗi có thể lệch nhau nếu sau này đổi mount point */
+#define SDCARD_DB_PATH              SDCARD_MOUNT_POINT "/songs.db"
 
 /* Chu kỳ vTaskDelay giữa các lần lặp trong Sdcard_LoadSong() - nhịp nghỉ để nhường
    CPU cho task khác (Mp3_Task, Oled_Task...) thay vì busy-poll liên tục, vì xQueueReceive
@@ -156,8 +159,21 @@ static void Sdcard_FillMp3RingBuffer(void)
         size_t lReadBytes = fread(lau8Chunk, 1, SDCARD_MP3_READ_CHUNK_SIZE, gpMp3File);
         if (lReadBytes == 0)
         {
-            /* Hết file mp3 - báo cho Mp3_Task biết qua gbMp3StreamEof, không đóng gpMp3File
-               ở đây (chỉ đóng khi thực sự đổi bài, xem Sdcard_LoadSong) */
+            /* fread() trả 0 có thể là HẾT FILE THẬT (feof()) hoặc LỖI ĐỌC THẬT SỰ (ferror() -
+               vd rút thẻ SD giữa chừng) - 2 tình huống khác nhau nhưng trước đây bị xử lý y hệt
+               nhau (chỉ set gbMp3StreamEof = true), khiến người dùng không hề biết thẻ đã bị
+               rút, chỉ thấy nhạc dừng êm như hết bài bình thường. Phân biệt bằng ferror() - nếu
+               đúng là lỗi đọc, báo cho Oled_Task hiển thị lỗi qua kênh SRM sẵn có (dùng lại
+               đúng OLED_BOOT_STATUS_SD_ERROR/Srm_OledNotifyBootStatus() vốn đã dùng lúc boot -
+               không tạo thêm command/status code mới, không phá vỡ kiến trúc Owner Task/SRM).
+               gbMp3StreamEof vẫn phải set true trong CẢ 2 trường hợp - dù EOF thật hay lỗi đọc,
+               Sdcard_Task đều không còn gì để nạp thêm cho bài này nữa */
+            if (ferror(gpMp3File))
+            {
+                ESP_LOGE(TAG, "Read error on mp3 stream (SD card removed/faulty?)");
+                Srm_OledNotifyBootStatus(OLED_BOOT_STATUS_SD_ERROR);
+            }
+
             gbMp3StreamEof = true;
             break;
         }
@@ -311,41 +327,33 @@ void Sdcard_Init(void)
 
 /**
  * @brief Sdcard_Mount
- * Mount thẻ nhớ SD ở chế độ 1-bit (SDMMC)
+ * Mount thẻ nhớ SD - chỉ lo phần CHUNG (đường dẫn mount, cấu hình FAT qua gSdcardMountConfig -
+ * định nghĩa sẵn trong sdcard_config.c, xem sdcard_config.h), KHÔNG biết chi tiết chân/bus
+ * phần cứng thật sự dùng để giao tiếp với
+ * thẻ - phần đó nằm trong driver tương ứng, CHỌN ĐÚNG 1 NHÁNH THEO SDCARD_INTERFACE
+ * (sdcard_config.h) NGAY LÚC BIÊN DỊCH (tiền xử lý #if, không phải if runtime) - nhánh không
+ * được chọn KHÔNG được biên dịch vào firmware (không sinh code thừa, không tăng dung lượng
+ * .bin cho driver không dùng tới). Nếu SDCARD_INTERFACE mang giá trị chưa có driver tương
+ * ứng, #error chặn biên dịch ngay (in thẳng ra log build) thay vì để lỗi trôi tới runtime.
+ * Thêm giao diện mới (vd SPI/QSPI): viết driver cùng khuôn mẫu Sdmmc_Init()/Sdmmc_Mount()
+ * (vd driver/sdspi/sdspi.c với Sdspi_Init()/Sdspi_Mount()), rồi thêm 1 nhánh #elif tương ứng
+ * bên dưới. Nhánh SDMMC hiện tại YÊU CẦU Sdmmc_Init() (driver/sdmmc/sdmmc.c) đã được gọi
+ * thành công từ trước trong app_main(), TRƯỚC KHI tạo Sdcard_Task.
  * @param
  * @return ESP_OK nếu mount thành công
  */
 esp_err_t Sdcard_Mount(void)
 {
-    esp_err_t lRet;
     sdmmc_card_t *pCard;
 
-    /* macro tạo config mặc định */
-    sdmmc_host_t lHost = SDMMC_HOST_DEFAULT();
-    sdmmc_slot_config_t lSlotConfig = SDMMC_SLOT_CONFIG_DEFAULT();
+#if (SDCARD_INTERFACE == SDCARD_INTERFACE_SDMMC)
+    esp_err_t lRet = Sdmmc_Mount(SDCARD_MOUNT_POINT, &gSdcardMountConfig, &pCard);
+#elif (SDCARD_INTERFACE == SDCARD_INTERFACE_SPI)
+    #error "SDCARD_INTERFACE_SPI chua duoc trien khai - viet driver/sdspi/sdspi.c (Sdspi_Mount cung chu ky Sdmmc_Mount), roi doi nhanh #elif nay thanh loi goi Sdspi_Mount()"
+#else
+    #error "SDCARD_INTERFACE (config/hardware/sdcard_config.h) dang mang gia tri khong hop le/chua duoc ho tro - chi chap nhan SDCARD_INTERFACE_SDMMC hoac SDCARD_INTERFACE_SPI (sau khi da trien khai)"
+#endif
 
-    /* Dùng SD 1-bit -> không dùng các chân data D1/D2/D3 */
-    lSlotConfig.width = 1;
-    lSlotConfig.d1 = -1;
-    lSlotConfig.d2 = -1;
-    lSlotConfig.d3 = -1;
-
-    /* Cấu hình chân GPIO thật của board */
-    lSlotConfig.clk = SD_CLK;
-    lSlotConfig.cmd = SD_CMD;
-    lSlotConfig.d0 = SD_D0;
-
-    /* format_if_mount_failed = false -> báo lỗi thay vì tự format thẻ khi mount thất bại
-       max_files: số file tối đa mở đồng thời
-       allocation_unit_size: kích thước cluster FAT filesystem (16KB) */
-    esp_vfs_fat_sdmmc_mount_config_t lMountConfig =
-    {
-        .format_if_mount_failed = false,
-        .max_files = 5,
-        .allocation_unit_size = 16 * 1024,
-    };
-
-    lRet = esp_vfs_fat_sdmmc_mount("/sdcard", &lHost, &lSlotConfig, &lMountConfig, &pCard);
     if (lRet != ESP_OK)
     {
         ESP_LOGE(TAG, "SD mount failed");
@@ -392,6 +400,15 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
     while (((pEntry = readdir(pDir)) != NULL) && (gsPlayerContext.totalSong < SDCARD_MAX_SONGS))
     {
         char lName[64];
+        /* Tên file KHÔNG bao gồm extension, dùng để dựng lMp3Path/lBinPath - kích thước bằng
+           đúng songPath/framePath (Sdcard_SongDbType_s, sdcard.h) thay vì dùng chung lName[64]
+           (chỉ đủ cho HIỂN THỊ trên menu OLED, xem Menu_Draw trong menu.c chỉ hiện tối đa 27
+           ký tự/dòng). Nếu dùng lName (đã bị cắt còn 63 ký tự) để dựng lại đường dẫn, file có
+           tên gốc dài hơn 63 ký tự sẽ bị dựng SAI đường dẫn (không khớp file thật trên thẻ),
+           khiến fopen(lBinPath) thất bại và bài hát bị loại âm thầm dù có đủ cặp .mp3/.bin
+           hợp lệ - lBaseName giữ đủ độ dài gốc (trừ phần snprintf tự cắt an toàn nếu tên thật
+           sự vượt quá 128 ký tự, cực hiếm) để tránh đúng lỗi đó */
+        char lBaseName[128];
         char lMp3Path[128];
         char lBinPath[128];
         FILE *pBinFile;
@@ -405,10 +422,13 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
             continue;
         }
 
+        Sdcard_RemoveExtension(lBaseName, sizeof(lBaseName), pEntry->d_name);
+        /* lName riêng cho hiển thị (có thể cắt ngắn hơn lBaseName) - không ảnh hưởng đường dẫn
+           thật đã dựng từ lBaseName ở trên/dưới */
         Sdcard_RemoveExtension(lName, sizeof(lName), pEntry->d_name);
 
-        snprintf(lMp3Path, sizeof(lMp3Path), "%s/%s.mp3", basePath, lName);
-        snprintf(lBinPath, sizeof(lBinPath), "%s/%s.bin", basePath, lName);
+        snprintf(lMp3Path, sizeof(lMp3Path), "%s/%s.mp3", basePath, lBaseName);
+        snprintf(lBinPath, sizeof(lBinPath), "%s/%s.bin", basePath, lBaseName);
 
         /* Bài hát chỉ hợp lệ nếu có đủ file .bin (frame animation) đi kèm */
         pBinFile = fopen(lBinPath, "rb");
@@ -429,7 +449,7 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
         snprintf(gaSongNameList[gsPlayerContext.totalSong].songName,
                  sizeof(gaSongNameList[gsPlayerContext.totalSong].songName), "%s", lName);
 
-        #if defined DEVELOPER_CONFIGURATION
+        #if defined DEBUG_PRINTF_ENABLED
             printf("Added: %s\n", lName);
         #endif
 
@@ -454,8 +474,8 @@ void Sdcard_ReadDbFile(void)
     Sdcard_SongDbType_s lRecord;
 
     /* Hàm này luôn được biên dịch (dù chỉ hữu ích lúc debug) vì sdcard.h khai báo và
-       audio.c gọi không điều kiện - nếu bọc cả hàm trong #if DEVELOPER_CONFIGURATION như
-       bản gốc, build release (không định nghĩa DEVELOPER_CONFIGURATION) sẽ lỗi linker vì
+       audio.c gọi không điều kiện - nếu bọc cả hàm trong #if DEBUG_PRINTF_ENABLED như
+       bản gốc, build release (không định nghĩa DEBUG_PRINTF_ENABLED) sẽ lỗi linker vì
        gọi tới hàm không tồn tại. Chỉ nội dung in ra mới cần thiết cho debug, nên chỉ bọc
        phần đó nếu muốn, còn bản thân hàm luôn tồn tại. */
     pDb = fopen(SDCARD_DB_PATH, "rb");
@@ -568,13 +588,21 @@ void Sdcard_Task(void *pvParameters)
        1 giá trị mới cần xử lý ngay (do Sdcard_LoadSong vừa trả về) */
     bool lbHasPendingNotify = false;
 
+    /* Tạo xSdCommandQueue TRƯỚC Sdcard_Mount() - đây là phần nhanh (chỉ cấp phát RAM), làm
+       trước để sẵn sàng càng sớm càng tốt, không phải chờ Sdcard_Mount() (chậm - I/O phần
+       cứng) chạy xong mới có. Được đụng tới lần đầu qua Srm_SdcardGetSingleFrame(), CHỈ gọi
+       trong Oled_PlayAnimation() - luôn cần người dùng bấm Play/Next/Prev trước, độ trễ phản
+       xạ người dùng dư sức lớn hơn thời gian dòng lệnh dưới đây chạy xong (cùng lý do
+       Mp3_Init() an toàn khi gọi trong Mp3_Task, xem mp3.c) */
+    Sdcard_Init();
+
     /* Mount + quét thẻ SD lúc khởi động - chỉ scan/đọc DB khi mount thành công, mount fail
        thì "/sdcard" không truy cập được, gọi tiếp cũng chỉ tự thất bại vô ích
        (Sdcard_ScanAndCreateDb tự log "Cannot open dir" rồi return, không crash) */
     esp_err_t lMountRet = Sdcard_Mount();
     if (lMountRet == ESP_OK)
     {
-        Sdcard_ScanAndCreateDb("/sdcard");
+        Sdcard_ScanAndCreateDb(SDCARD_MOUNT_POINT);
         Sdcard_ReadDbFile();
     }
 

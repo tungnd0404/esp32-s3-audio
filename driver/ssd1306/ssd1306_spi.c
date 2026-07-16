@@ -7,6 +7,7 @@
 #include "esp_log.h"
 
 #include "ssd1306.h"
+#include "ssd1306_config.h"
 
 #define TAG "SSD1306"
 
@@ -33,6 +34,12 @@ void spi_master_init(SSD1306_t * dev, int16_t mosi, int16_t sclk, int16_t cs, in
 {
 	esp_err_t ret;
 
+	/* mosi/sclk KHÔNG còn dùng để tự spi_bus_initialize() ở đây nữa - xem giải thích bên dưới.
+	   Giữ nguyên trong chữ ký hàm (không đổi API) để không phá vỡ lời gọi hiện có/tương lai,
+	   chỉ đánh dấu tường minh là cố ý không dùng, tránh cảnh báo unused-parameter */
+	(void)mosi;
+	(void)sclk;
+
 	gpio_reset_pin( cs );
 	gpio_set_direction( cs, GPIO_MODE_OUTPUT );
 	gpio_set_level( cs, 0 );
@@ -49,20 +56,14 @@ void spi_master_init(SSD1306_t * dev, int16_t mosi, int16_t sclk, int16_t cs, in
 		gpio_set_level( reset, 1 );
 	}
 
-	spi_bus_config_t spi_bus_config = {
-		.mosi_io_num = mosi,
-		.miso_io_num = -1,
-		.sclk_io_num = sclk,
-		.quadwp_io_num = -1,
-		.quadhd_io_num = -1,
-		.max_transfer_sz = 0,
-		.flags = 0
-	};
-
-	ESP_LOGI(TAG, "SPI HOST_ID=%d", HOST_ID);
-	ret = spi_bus_initialize( HOST_ID, &spi_bus_config, SPI_DMA_CH_AUTO );
-	ESP_LOGI(TAG, "spi_bus_initialize=%d",ret);
-	assert(ret==ESP_OK);
+	/* KHÔNG tự spi_bus_initialize() nữa - SPI2_HOST_ID/SPI3_HOST đã được Spi_Init()
+	   (driver/spi/spi.c) khởi tạo đúng 1 lần từ app_main() cho toàn hệ thống (VS1053 dùng
+	   chung bus này). Gọi lại spi_bus_initialize() ở đây trên CÙNG host sẽ trả lỗi
+	   (spi_bus_initialize() không cho gọi 2 lần trên 1 host), khiến assert(ret==ESP_OK) bên
+	   dưới fail ngay lập tức nếu module SSD1306-qua-SPI này được kích hoạt (đổi I2C_ADDRESS
+	   sang SPI_ADDRESS lúc gọi Oled_Init(), xem oled.c) trong tương lai - cùng lý do
+	   spi_device_add() (hàm bên dưới) đã bỏ hẳn bước này từ trước. Chỉ add device lên bus có
+	   sẵn, giống spi_device_add(). */
 
 	spi_device_interface_config_t devcfg;
 	memset( &devcfg, 0, sizeof( spi_device_interface_config_t ) );
@@ -173,7 +174,7 @@ bool spi_master_write_data(SSD1306_t * dev, const uint8_t* Data, size_t DataLeng
 }
 
 
-void spi_init(SSD1306_t * dev, int width, int height)
+void ssd1306_spi_send_init(SSD1306_t * dev, int width, int height)
 {
 	dev->_width = width;
 	dev->_height = height;
@@ -224,7 +225,7 @@ void spi_display_image(SSD1306_t * dev, int page, int seg, const uint8_t * image
 	if (page >= dev->_pages) return;
 	if (seg >= dev->_width) return;
 
-	int _seg = seg + CONFIG_OFFSETX;
+	int _seg = seg + SSD1306_OFFSETX;
 	uint8_t columLow = _seg & 0x0F;
 	uint8_t columHigh = (_seg >> 4) & 0x0F;
 

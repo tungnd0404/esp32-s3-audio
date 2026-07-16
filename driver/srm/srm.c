@@ -22,7 +22,7 @@
 /* Chu kỳ + số lần tối đa Srm_OledNotifyBootStatus() poll chờ xOledCommandQueue được tạo
    (Oled_Task, chạy Core 0, tự gọi Oled_Init() lúc khởi động - không đảm bảo xong trước khi
    Sdcard_Task, chạy Core 1, quét xong thẻ SD). Tổng thời gian chờ tối đa = 10ms * 50 = 500ms,
-   thừa đủ cho i2c_device_add()/ssd1306_init() (vài chục ms) dù Sdcard_Task có mount/quét
+   thừa đủ cho ssd1306_add_i2c_device()/ssd1306_init() (vài chục ms) dù Sdcard_Task có mount/quét
    xong gần như ngay lập tức */
 #define SRM_OLED_BOOT_STATUS_RETRY_DELAY_MS    10U
 #define SRM_OLED_BOOT_STATUS_RETRY_COUNT       50U

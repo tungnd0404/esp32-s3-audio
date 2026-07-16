@@ -8,7 +8,6 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "driver/gpio.h"
-#include "config.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/queue.h"
@@ -35,7 +34,7 @@ typedef enum {
  * @param
  * @return
  */
-void Button_Init();
+void Button_Init(void);
 
 /* ===================================================
  *  ISR

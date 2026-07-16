@@ -3,6 +3,8 @@
  * =================================================== */
 
 #include "button.h"
+#include "button_config.h"
+#include "gpio_config.h"
 #include "player_manager.h"
 
 /* ===================================================
@@ -41,9 +43,17 @@ void Button_NextISR(void *arg)
         /* Cờ báo có task ưu tiên cao hơn được đánh thức sau khi notify hay không */
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN_EVENT_NEXT, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
+        /* Dùng eSetBits (không phải eSetValueWithOverwrite) - 3 ISR Next/Prev/Play đang dùng
+           CHUNG 1 giá trị notification của xPlayerManagerTaskHandle làm hộp thư.
+           eSetValueWithOverwrite trước đây khiến 2 nút KHÁC NHAU bấm gần như đồng thời (trước
+           khi PlayerManager_Task kịp thức dậy đọc giá trị đầu) làm MẤT HẲN 1 lần bấm - giá trị
+           sau ghi đè giá trị trước. eSetBits gộp (OR) các bit lại thay vì ghi đè nên 2 sự kiện
+           khác bit luôn cùng tồn tại tới khi PlayerManager_Task xử lý, không còn rơi mất - xem
+           PlayerManager_Task (player_manager.c) xử lý từng bit độc lập thay vì switch trên 1
+           giá trị duy nhất. BTN1_BIT/BTN2_BIT/BTN3_BIT khai báo sẵn trong player_manager.h. */
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN1_BIT, eSetBits, &xHigherPriorityTaskWoken);
 
-        if (xHigherPriorityTaskWoken) 
+        if (xHigherPriorityTaskWoken)
         {
             portYIELD_FROM_ISR();
         }
@@ -69,9 +79,10 @@ void Button_PrevISR(void *arg)
         /* Cờ báo có task ưu tiên cao hơn được đánh thức sau khi notify hay không */
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN_EVENT_PREV, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
+        /* eSetBits - xem giải thích đầy đủ trong Button_NextISR() ở trên */
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN2_BIT, eSetBits, &xHigherPriorityTaskWoken);
 
-        if (xHigherPriorityTaskWoken) 
+        if (xHigherPriorityTaskWoken)
         {
             portYIELD_FROM_ISR();
         }
@@ -97,9 +108,10 @@ void Button_PlayISR(void *arg)
         /* Cờ báo có task ưu tiên cao hơn được đánh thức sau khi notify hay không */
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN_EVENT_PLAY, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
+        /* eSetBits - xem giải thích đầy đủ trong Button_NextISR() ở trên */
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN3_BIT, eSetBits, &xHigherPriorityTaskWoken);
 
-        if (xHigherPriorityTaskWoken) 
+        if (xHigherPriorityTaskWoken)
         {
             portYIELD_FROM_ISR();
         }
@@ -115,26 +127,16 @@ void Button_PlayISR(void *arg)
  * @param
  * @return 
  */
-void Button_Init()
+void Button_Init(void)
 {
-    /* khởi tạo config */
-    gpio_config_t cfg = {
-        .intr_type = GPIO_INTR_NEGEDGE,
-        .mode = GPIO_MODE_INPUT,
-        .pin_bit_mask =
-            (1ULL << BTN_NEXT_PIN) |
-            (1ULL << BTN_PREV_PIN) |
-            (1ULL << BTN_PLAY_PIN),
-        .pull_up_en = GPIO_PULLUP_ENABLE,
-    };
-
-    /* Config GPIO */
-    ESP_ERROR_CHECK(gpio_config(&cfg));
+    /* Config GPIO - dùng gButtonGpioConfig (định nghĩa trong gpio_config.c) thay vì tự
+       khai báo/liệt kê pin_bit_mask ở đây, xem gpio_config.h/button_config.h */
+    ESP_ERROR_CHECK(gpio_config(&gButtonGpioConfig));
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
 
     /* Đăng ký ngắt */
-    gpio_isr_handler_add(BTN_NEXT_PIN, Button_NextISR, NULL);
-    gpio_isr_handler_add(BTN_PREV_PIN, Button_PrevISR, NULL);
-    gpio_isr_handler_add(BTN_PLAY_PIN, Button_PlayISR, NULL);
+    gpio_isr_handler_add(BUTTON_NEXT_PIN, Button_NextISR, NULL);
+    gpio_isr_handler_add(BUTTON_PREV_PIN, Button_PrevISR, NULL);
+    gpio_isr_handler_add(BUTTON_PLAY_PIN, Button_PlayISR, NULL);
 }
 
