@@ -427,8 +427,14 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
            thật đã dựng từ lBaseName ở trên/dưới */
         Sdcard_RemoveExtension(lName, sizeof(lName), pEntry->d_name);
 
+        /* basePath la con tro khong ro do dai voi GCC nen -Wformat-truncation canh bao
+           lMp3Path/lBinPath co the bi cat - da chap nhan cat an toan (xem comment lBaseName
+           o tren), tat canh bao cuc bo thay vi tang buffer khong can thiet */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-truncation"
         snprintf(lMp3Path, sizeof(lMp3Path), "%s/%s.mp3", basePath, lBaseName);
         snprintf(lBinPath, sizeof(lBinPath), "%s/%s.bin", basePath, lBaseName);
+#pragma GCC diagnostic pop
 
         /* Bài hát chỉ hợp lệ nếu có đủ file .bin (frame animation) đi kèm */
         pBinFile = fopen(lBinPath, "rb");

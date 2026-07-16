@@ -17,7 +17,7 @@
 #define SPI2_HOST_ID          SPI2_HOST
 
 /* --- Chân SPI vật lý dùng chung cho SPI2_HOST_ID - đổi tại đây nếu đấu dây khác board --- */
-#define SPI2_MOSI_PIN         GPIO_NUM_23
+#define SPI2_MOSI_PIN         GPIO_NUM_4
 #define SPI2_MISO_PIN         GPIO_NUM_19
 #define SPI2_SCLK_PIN         GPIO_NUM_18
 
