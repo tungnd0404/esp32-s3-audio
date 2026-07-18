@@ -193,6 +193,21 @@ static Std_ReturnType Srm_SendCommand(QueueHandle_t ownerQueue, uint32_t cmdId, 
         return E_NOT_OK;
     }
 
+    /* Dọn sạch response CŨ còn sót lại trong lResponseQueue (nếu có) TRƯỚC khi gửi request
+       mới. Tình huống gây ra: lần gọi TRƯỚC đó của CHÍNH task này đã bỏ cuộc chờ vì hết
+       timeoutTicks (owner xử lý chưa kịp), nhưng owner rồi cũng xử lý xong (dù muộn) và vẫn
+       đẩy response vào đúng response queue này - vì queue chỉ sâu 1 chỗ (xem
+       Srm_GetOwnResponseQueue), response cũ đó nằm sẵn ở đầu hàng và sẽ bị lần gọi HIỆN TẠI
+       vô tình nhận nhầm (xQueueReceive dưới đây trả về ngay lập tức với dữ liệu CŨ, không
+       thuộc về request sắp gửi) - biểu hiện ra ngoài là hàm báo E_OK (nhận response "thành
+       công") nhưng payload/pData mang giá trị đã lỗi thời. Non-blocking (timeout 0), lặp tới
+       khi rỗng thật sự để phòng trường hợp hiếm có nhiều hơn 1 response cũ dồn lại */
+    Srm_Message_s lStaleResponse;
+    while (xQueueReceive(lResponseQueue, &lStaleResponse, 0) == pdTRUE)
+    {
+        /* Chỉ cần rút cạn, không dùng tới nội dung response cũ này */
+    }
+
     lRequest.kind = SRM_MSG_COMMAND;
     lRequest.cmdId = cmdId;
     lRequest.payload = *pPayload;
