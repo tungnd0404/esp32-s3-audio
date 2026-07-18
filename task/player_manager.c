@@ -10,6 +10,11 @@
 #include "oled.h"
 #include "sdcard.h"
 #include "mp3.h"
+#include "esp_log.h"
+
+/* [DEBUG TẠM] tag dùng riêng cho log debug bitmask nút bấm bên dưới - xoá cùng lúc với khối
+   debug trong PlayerManager_Task() sau khi xác định xong nguyên nhân */
+static const char *DBG_TAG = "PLAYER_MGR";
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -97,8 +102,8 @@ void PlayerManager_Init(void)
 
 /**
  * @brief PlayerManager_Task
- * Task điều khiển trung tâm của hệ thống. Chờ task notification (bitmask BTN1_BIT/BTN2_BIT/
- * BTN3_BIT, gộp bằng eSetBits - xem button.c) gửi từ button ISR để nhận biết nút Next/Prev/
+ * Task điều khiển trung tâm của hệ thống. Chờ task notification (bitmask 1U << BTN_EVENT_xxx,
+ * gộp bằng eSetBits - xem button.c) gửi từ button ISR để nhận biết nút Next/Prev/
  * Play vừa được bấm, sau đó cập nhật
  * gsPlayerContext (mainState, buttonState, playbackState, cursor, currentSong) và báo lại
  * cho các task liên quan (qua task notification, truyền thẳng PlayerManager_ButtonStateType_e):
@@ -127,8 +132,8 @@ void PlayerManager_Task(void *arg)
        này - nên gọi ở đây an toàn, không cần gọi từ app_main() nữa */
     PlayerManager_Init();
 
-    /* Giá trị sự kiện nút bấm nhận được từ button ISR - bitmask BTN1_BIT/BTN2_BIT/BTN3_BIT
-       (Next/Prev/Play, xem player_manager.h), có thể có nhiều hơn 1 bit cùng lúc */
+    /* Giá trị sự kiện nút bấm nhận được từ button ISR - bitmask 1U << BTN_EVENT_xxx (xem
+       button.h/button.c), có thể có nhiều hơn 1 bit cùng lúc */
     uint32_t lu32button_evt;
     /* Lưu thời điểm click PLAY gần nhất để phát hiện double click, static để giữ giá trị qua các vòng lặp */
     static TickType_t lu32LastClickTime = 0;
@@ -154,8 +159,8 @@ void PlayerManager_Task(void *arg)
         /* Chờ button ISR gửi notification tới, hoặc hết thời gian chờ (chỉ khi lbAutoReturnPending == true) */
         if (xTaskNotifyWait(0, UINT32_MAX, &lu32button_evt, lu32WaitTicks) == pdTRUE)
         {
-            /* lu32button_evt giờ là BITMASK các nút vừa được bấm (BTN1_BIT=Next/BTN2_BIT=Prev/
-               BTN3_BIT=Play, gộp bằng eSetBits ở button.c) - CÓ THỂ có nhiều hơn 1 bit cùng lúc
+            /* lu32button_evt giờ là BITMASK các nút vừa được bấm (mỗi bit = 1U << BTN_EVENT_xxx,
+               xem button.c, gộp bằng eSetBits) - CÓ THỂ có nhiều hơn 1 bit cùng lúc
                nếu 2 nút khác nhau được bấm gần như đồng thời trước khi task kịp thức dậy xử lý
                (xem giải thích chi tiết trong button.c). Xử lý TỪNG bit độc lập theo thứ tự cố
                định Next -> Prev -> Play thay vì switch trên 1 giá trị duy nhất như trước - đảm
@@ -164,7 +169,7 @@ void PlayerManager_Task(void *arg)
                xử lý khi CẢ 2 bit khác nhau cùng về 1 lượt (hiếm, chỉ xảy ra khi 2 nút vật lý bị
                bấm trong cùng vài ms) không đảm bảo phản ánh đúng thứ tự thời gian thực đã bấm -
                đánh đổi chấp nhận được, quan trọng là không bit nào bị mất hẳn. */
-            if ((lu32button_evt & BTN1_BIT) != 0U)
+            if ((lu32button_evt & (1U << BTN_EVENT_NEXT)) != 0U)
             {
                     /* Đang ở MENU: nút Next dùng để di chuyển con trỏ xuống dưới danh sách */
                     if (gsPlayerContext.mainState == MAIN_STATE_MENU)
@@ -205,7 +210,7 @@ void PlayerManager_Task(void *arg)
                     }
             }
 
-            if ((lu32button_evt & BTN2_BIT) != 0U)
+            if ((lu32button_evt & (1U << BTN_EVENT_PREV)) != 0U)
             {
                     /* Đang ở MENU: nút Prev dùng để di chuyển con trỏ lên trên danh sách */
                     if (gsPlayerContext.mainState == MAIN_STATE_MENU)
@@ -245,7 +250,7 @@ void PlayerManager_Task(void *arg)
                     }
             }
 
-            if ((lu32button_evt & BTN3_BIT) != 0U)
+            if ((lu32button_evt & (1U << BTN_EVENT_PLAY)) != 0U)
             {
                     /* Thời điểm hiện tại, dùng để so sánh phát hiện double click */
                     TickType_t lnow = xTaskGetTickCount();

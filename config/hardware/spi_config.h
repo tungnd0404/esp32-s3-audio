@@ -17,9 +17,9 @@
 #define SPI2_HOST_ID          SPI2_HOST
 
 /* --- Chân SPI vật lý dùng chung cho SPI2_HOST_ID - đổi tại đây nếu đấu dây khác board --- */
-#define SPI2_MOSI_PIN         GPIO_NUM_4
-#define SPI2_MISO_PIN         GPIO_NUM_19
-#define SPI2_SCLK_PIN         GPIO_NUM_18
+#define SPI2_MOSI_PIN         GPIO_NUM_11
+#define SPI2_MISO_PIN         GPIO_NUM_12
+#define SPI2_SCLK_PIN         GPIO_NUM_13
 
 /* Kích thước giao dịch lớn nhất bus cần hỗ trợ (byte) - hiện chỉ VS1053 dùng bus này
    (VS1053_CHUNK_SIZE = 32, xem vs1053.h). Nếu sau này thêm device khác cần gửi/nhận khối lớn

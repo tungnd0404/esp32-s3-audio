@@ -1,0 +1,162 @@
+Command: E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools/idf_monitor.py -p COM4 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 E:\project\Audio\build\audio.elf E:\project\Audio\build\bootloader\bootloader.elf --force-color -m 'E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe' 'E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools\idf.py' '-p' 'COM4'
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2a (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (24) boot: ESP-IDF v5.5.1 2nd stage bootloader[0m
+[0;32mI (25) boot: compile time Jul 18 2026 10:20:18[0m
+[0;32mI (25) boot: Multicore bootloader[0m
+[0;32mI (25) boot: chip revision: v0.2[0m
+[0;32mI (28) boot: efuse block revision: v1.3[0m
+[0;32mI (31) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (35) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (39) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (43) boot: Enabling RNG early entropy source...[0m
+[0;32mI (47) boot: Partition Table:[0m
+[0;32mI (50) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (63) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (69) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (76) boot: End of partition table[0m
+[0;32mI (79) esp_image: segment 0: paddr=00010020 vaddr=3c040020 size=11f00h ( 73472) map[0m
+[0;32mI (99) esp_image: segment 1: paddr=00021f28 vaddr=3fc95b00 size=03250h ( 12880) load[0m
+[0;32mI (102) esp_image: segment 2: paddr=00025180 vaddr=40374000 size=0ae98h ( 44696) load[0m
+[0;32mI (113) esp_image: segment 3: paddr=00030020 vaddr=42000020 size=33aa4h (211620) map[0m
+[0;32mI (150) esp_image: segment 4: paddr=00063acc vaddr=4037ee98 size=06ba8h ( 27560) load[0m
+[0;32mI (157) esp_image: segment 5: paddr=0006a67c vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (164) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (164) boot: Disabling RNG early entropy source...[0m
+[0;32mI (176) cpu_start: Multicore app[0m
+[0;32mI (185) cpu_start: Pro cpu start user code[0m
+[0;32mI (185) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (185) app_init: Application information:[0m
+[0;32mI (185) app_init: Project name:     audio[0m
+[0;32mI (189) app_init: App version:      build_success-2-gb0b964b-dirty[0m
+[0;32mI (195) app_init: Compile time:     Jul 18 2026 10:19:58[0m
+[0;32mI (200) app_init: ELF file SHA256:  5cfa15793...[0m
+[0;32mI (204) app_init: ESP-IDF:          v5.5.1[0m
+[0;32mI (208) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (212) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (216) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (220) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (226) heap_init: At 3FCA4A78 len 00044C98 (275 KiB): RAM[0m
+[0;32mI (231) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (236) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (241) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (248) spi_flash: detected chip: boya[0m
+[0;32mI (250) spi_flash: flash io: dio[0m
+[0;33mW (253) spi_flash: Detected size(16384k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (265) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (272) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (279) main_task: Started on CPU0[0m
+[0;32mI (299) main_task: Calling app_main()[0m
+[0;32mI (299) main_task: Returned from app_main()[0m
+[0;32mI (299) SSD1306: New i2c driver is used[0m
+[0;33mW (299) SSD1306: Will not install i2c master driver[0m
+[0;32mI (309) SSD1306: OLED configured successfully[0m
+[0;32mI (339) SDCARD: SD card mounted[0m
+Name: EB1QT
+Type: SDHC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 30528MB
+CSD: ver=2, sector_size=512, capacity=62521344 read_bl_len=9
+SSR: bus_width=1
+Found: System Volume Information
+Found: songs.db
+Found: 160.mp3
+Added: 160
+Found: 160.bin
+Found: 601.mp3
+Added: 601
+Found: 601.bin
+Total songs: 2
+MP3: /sdcard/160.mp3
+BIN: /sdcard/160.bin
+MP3: /sdcard/601.mp3
+BIN: /sdcard/601.bin
+[0;32mI (369) DOUBLE_BUFFER: Double buffer module initialized[0m
+[0;32mI (499) VS1053: VS1053 initialized successfully[0m
+BUTTON SELECT AND START PLAYING
+[0;33mW (3219) VS1053: [DEBUG] DREQ waited=1 immediate=9 (last ~1s)[0m
+[0;32mI (3219) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+SINGLE CLICK
+PAUSE
+SINGLE CLICK
+PLAY
+[0;33mW (5389) VS1053: [DEBUG] DREQ waited=0 immediate=200 (last ~1s)[0m
+[0;33mW (6399) VS1053: [DEBUG] DREQ waited=0 immediate=2856 (last ~1s)[0m
+[0;33mW (6399) MP3: [DEBUG] chunks/s=2848 decodeTime=2[0m
+[0;33mW (7429) VS1053: [DEBUG] DREQ waited=0 immediate=2890 (last ~1s)[0m
+[0;33mW (7429) MP3: [DEBUG] chunks/s=2880 decodeTime=2[0m
+[0;33mW (8429) VS1053: [DEBUG] DREQ waited=0 immediate=2884 (last ~1s)[0m
+[0;33mW (8429) MP3: [DEBUG] chunks/s=2878 decodeTime=2[0m
+[0;33mW (9439) VS1053: [DEBUG] DREQ waited=0 immediate=2735 (last ~1s)[0m
+[0;33mW (9439) MP3: [DEBUG] chunks/s=2722 decodeTime=2[0m
+[0;33mW (10439) VS1053: [DEBUG] DREQ waited=0 immediate=2916 (last ~1s)[0m
+[0;33mW (10439) MP3: [DEBUG] chunks/s=2910 decodeTime=2[0m
+[0;33mW (11459) VS1053: [DEBUG] DREQ waited=0 immediate=2736 (last ~1s)[0m
+[0;33mW (11459) MP3: [DEBUG] chunks/s=2722 decodeTime=2[0m
+[0;33mW (12489) VS1053: [DEBUG] DREQ waited=0 immediate=2890 (last ~1s)[0m
+[0;33mW (12489) MP3: [DEBUG] chunks/s=2880 decodeTime=2[0m
+SINGLE CLICK
+PAUSE
+DOUBLE CLICK -> MENU
+BUTTON SELECT AND START PLAYING
+[0;33mW (36539) VS1053: [DEBUG] DREQ waited=0 immediate=970 (last ~1s)[0m
+[0;32mI (36619) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+SINGLE CLICK
+PAUSE
+SINGLE CLICK
+PLAY
+[0;33mW (41199) VS1053: [DEBUG] DREQ waited=0 immediate=235 (last ~1s)[0m
+[0;33mW (42229) VS1053: [DEBUG] DREQ waited=0 immediate=2857 (last ~1s)[0m
+[0;33mW (42229) MP3: [DEBUG] chunks/s=2849 decodeTime=2[0m
+[0;33mW (43249) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (43249) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (44269) VS1053: [DEBUG] DREQ waited=0 immediate=2747 (last ~1s)[0m
+[0;33mW (44269) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (45289) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (45289) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (46309) VS1053: [DEBUG] DREQ waited=0 immediate=2747 (last ~1s)[0m
+[0;33mW (46309) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (47329) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (47329) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (48349) VS1053: [DEBUG] DREQ waited=0 immediate=2747 (last ~1s)[0m
+[0;33mW (48349) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+SINGLE CLICK
+PAUSE
+DOUBLE CLICK -> MENU
+BUTTON SELECT AND START PLAYING
+[0;33mW (60899) VS1053: [DEBUG] DREQ waited=0 immediate=1638 (last ~1s)[0m
+[0;32mI (60939) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+SINGLE CLICK
+PAUSE
+SINGLE CLICK
+PLAY
+[0;33mW (63979) VS1053: [DEBUG] DREQ waited=0 immediate=203 (last ~1s)[0m
+DOUBLE CLICK -> MENU
+[0;33mW (64989) VS1053: [DEBUG] DREQ waited=0 immediate=2867 (last ~1s)[0m
+[0;33mW (64989) MP3: [DEBUG] chunks/s=2866 decodeTime=2[0m
+BUTTON SELECT AND START PLAYING
+[0;32mI (65169) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (65989) VS1053: [DEBUG] DREQ waited=0 immediate=2551 (last ~1s)[0m
+[0;33mW (66279) MP3: [DEBUG] chunks/s=2722 decodeTime=2[0m
+[0;33mW (66399) DOUBLE_BUFFER: Frame 30 not in any buffer, loading urgently[0m
+[0;33mW (67019) VS1053: [DEBUG] DREQ waited=0 immediate=2672 (last ~1s)[0m
+[0;33mW (67279) MP3: [DEBUG] chunks/s=2731 decodeTime=2[0m
+[0;33mW (68039) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (68279) MP3: [DEBUG] chunks/s=2582 decodeTime=2[0m
+[0;33mW (69059) VS1053: [DEBUG] DREQ waited=0 immediate=2747 (last ~1s)[0m
+[0;33mW (69299) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (70079) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (70319) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (71099) VS1053: [DEBUG] DREQ waited=0 immediate=2747 (last ~1s)[0m
+[0;33mW (71339) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (72119) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (72359) MP3: [DEBUG] chunks/s=2737 decodeTime=2[0m
+[0;33mW (73139) VS1053: [DEBUG] DREQ waited=0 immediate=2672 (last ~1s)[0m

@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -26,6 +27,12 @@
 /* Địa chỉ RAM nội bộ chip lưu "end fill byte" đúng cho codec/patch đang nạp - đọc gián tiếp
    qua SCI_WRAMADDR + SCI_WRAM (xem vs1053_start_song) */
 #define VS1053_WRAM_ADDR_ENDFILLBYTE 0x1E06U
+
+/* Số byte "end fill byte" tối đa gửi trong lúc chờ SM_CANCEL tự clear (xem vs1053_cancel_song)
+   trước khi coi là chip treo thật và phải reset cứng - theo đúng khuyến nghị datasheet VS1053b
+   (mục "Ending Playback") lẫn thư viện tham khảo phổ biến (Adafruit_VS1053), CHIA HẾT cho
+   VS1053_CHUNK_SIZE để vòng lặp gửi tròn khối */
+#define VS1053_CANCEL_MAX_FILLER_BYTES   2048U
 
 /* Thời gian tối đa chờ DREQ lên cao (ms) trước khi coi là chip treo/mất kết nối - xem
    vs1053_wait_dreq(). Rộng rãi so với thời gian DREQ deassert thực tế theo datasheet (tối đa
@@ -78,12 +85,20 @@ static inline void delay_ms(uint32_t u32Ms)
  */
 static esp_err_t vs1053_add_spi_devices(vs1053_handle_t *pDev, uint32_t clockSpeedHz)
 {
+    /* KHÔNG dùng SPI_DEVICE_HALFDUPLEX: vs1053_read_sci() gửi tx_buffer VÀ nhận rx_buffer
+       trong CÙNG 1 transaction (clock dummy byte ra MOSI trong lúc clock data thật vào từ
+       MISO cùng lúc) - đây là full-duplex thật sự theo giao thức SCI read của VS1053, không
+       phải kiểu half-duplex (gửi lệnh xong mới đọc phản hồi). ESP32-S3 (SPI driver dùng DMA)
+       từ chối transaction có cả pha MOSI lẫn MISO khi device được cấu hình half-duplex, gây
+       lỗi "SPI half duplex mode is not supported when both MOSI and MISO phases are enabled".
+       Ở chế độ full-duplex (mặc định, không set cờ này), vs1053_write_sci()/vs1053_send_buffer()
+       (chỉ dùng tx_buffer/tx_data, rx_buffer để NULL) vẫn hoạt động đúng - phía RX đơn giản bị
+       bỏ qua. */
     spi_device_interface_config_t lSciCfg = {
         .clock_speed_hz = clockSpeedHz,
         .mode = 0,                         /* SPI mode 0 */
         .spics_io_num = VS1053_XCS_PIN,     /* Driver SPI tự điều khiển CS qua chân này */
-        .queue_size = 1,
-        .flags = SPI_DEVICE_HALFDUPLEX
+        .queue_size = 1
     };
 
     esp_err_t lRet = spi_bus_add_device(SPI2_HOST_ID, &lSciCfg, &pDev->sci_handle);
@@ -96,8 +111,7 @@ static esp_err_t vs1053_add_spi_devices(vs1053_handle_t *pDev, uint32_t clockSpe
         .clock_speed_hz = clockSpeedHz,
         .mode = 0,
         .spics_io_num = VS1053_XDCS_PIN,     /* Driver SPI tự điều khiển CS qua chân này */
-        .queue_size = 1,
-        .flags = SPI_DEVICE_HALFDUPLEX
+        .queue_size = 1
     };
 
     return spi_bus_add_device(SPI2_HOST_ID, &lSdiCfg, &pDev->sdi_handle);
@@ -107,12 +121,25 @@ static esp_err_t vs1053_add_spi_devices(vs1053_handle_t *pDev, uint32_t clockSpe
  *  GLOBAL FUNCTION
  * =================================================== */
 
+/* --- [DEBUG TẠM] đếm số lần gọi vs1053_wait_dreq() thấy DREQ=0 (phải chờ thật) so với
+   DREQ=1 ngay lập tức (không chờ) - in ra mỗi ~1 giây rồi reset, xem vs1053_wait_dreq() bên
+   dưới. Mục đích: nếu "waited" LUÔN = 0 suốt cả bài hát, gần như chắc chắn chân DREQ không
+   thực sự nối tới VS1053 (pull-up nội của ESP32 giữ chân này ở mức cao vĩnh viễn - xem
+   Gpio_ConfigInput() trong driver/gpio/gpio.c) chứ không phải chip thật sự luôn rảnh. XOÁ
+   khối debug này (3 biến static + đoạn log bên dưới) sau khi xác định xong nguyên nhân. */
+static uint32_t gu32DbgDreqWaited = 0U;
+static uint32_t gu32DbgDreqImmediate = 0U;
+static uint32_t gu32DbgLastLogMs = 0U;
+
 Std_ReturnType vs1053_wait_dreq(vs1053_handle_t *pDev)
 {
     uint32_t lu32WaitedMs = 0U;
+    bool lbHadToWait = false;
 
     while (gpio_get_level(pDev->dreq_pin) == 0)
     {
+        lbHadToWait = true;
+
         /* Giới hạn thời gian chờ (VS1053_DREQ_TIMEOUT_MS) - trước đây vòng lặp này không có
            timeout, nếu chip treo/mất kết nối giữa chừng (DREQ kẹt mức thấp) thì Mp3_Task (task
            duy nhất gọi tới các hàm vs1053_*, kiến trúc Owner Task - xem srm.h) sẽ treo vĩnh
@@ -127,6 +154,27 @@ Std_ReturnType vs1053_wait_dreq(vs1053_handle_t *pDev)
 
         delay_ms(1);
         lu32WaitedMs++;
+    }
+
+    /* [DEBUG TẠM] */
+    if (lbHadToWait)
+    {
+        gu32DbgDreqWaited++;
+    }
+    else
+    {
+        gu32DbgDreqImmediate++;
+    }
+    {
+        uint32_t lu32NowMs = (uint32_t)(esp_timer_get_time() / 1000);
+        if ((lu32NowMs - gu32DbgLastLogMs) >= 1000U)
+        {
+            ESP_LOGW(TAG, "[DEBUG] DREQ waited=%u immediate=%u (last ~1s)",
+                     (unsigned)gu32DbgDreqWaited, (unsigned)gu32DbgDreqImmediate);
+            gu32DbgDreqWaited = 0U;
+            gu32DbgDreqImmediate = 0U;
+            gu32DbgLastLogMs = lu32NowMs;
+        }
     }
 
     return E_OK;
@@ -255,6 +303,65 @@ esp_err_t vs1053_reset(vs1053_handle_t *pDev)
     return ESP_OK;
 }
 
+/**
+ * @brief vs1053_apply_default_registers
+ * Ghi các thanh ghi cấu hình mặc định NGAY SAU KHI chip vừa được reset (chân cứng): clock
+ * nhân 3.0x, lấy mẫu 44.1kHz stereo, mode SDINEW+LINE1, và volume truyền vào. Tách riêng khỏi
+ * vs1053_init() để dùng lại được cho đường phục hồi khi SM_CANCEL không tự clear
+ * (vs1053_cancel_song() -> reset cứng -> phải cấu hình lại từ đầu y hệt lúc khởi động lần
+ * đầu, xem giải thích đầy đủ ở vs1053_cancel_song()) - tránh lặp lại y hệt các dòng ghi thanh
+ * ghi ở 2 nơi.
+ * @param pDev: con trỏ device VS1053 (đã add SPI device, vừa reset xong)
+ * @param volume: mức âm lượng cần áp dụng/khôi phục (0-100), xem vs1053_set_volume()
+ * @return
+ */
+static void vs1053_apply_default_registers(vs1053_handle_t *pDev, uint8_t volume)
+{
+    /* Cấu hình clock (3.0x = 12.288 MHz) - PHẢI làm trước khi nâng tốc độ SPI bên dưới,
+       nếu không SPI sẽ chạy nhanh hơn khả năng xử lý thật của chip */
+    vs1053_write_sci(pDev, SCI_CLOCKF, 0x6000);
+
+    /* Cấu hình lấy mẫu 44.1kHz, STEREO (bit thấp nhất = 0). LƯU Ý: theo datasheet VS1053b,
+       bit 0 của SCI_AUDATA là cờ mono/stereo (1 = ép mono), KHÔNG phải 1 phần của sample
+       rate - dùng đúng 44100 (số chẵn), không phải 44101, để không vô tình ép chip sang
+       mono */
+    vs1053_write_sci(pDev, SCI_AUDATA, 44100);
+
+    /* Cấu hình chế độ: SDINEW (bắt buộc) + LINE1 (nguồn vào từ input line thay vì mic) */
+    vs1053_write_sci(pDev, SCI_MODE, SM_SDINEW | SM_LINE1);
+
+    vs1053_set_volume(pDev, volume);
+}
+
+/**
+ * @brief vs1053_raise_spi_speed
+ * Gỡ 2 SPI device hiện có (đang ở tốc độ thấp VS1053_SPI_INIT_CLOCK_HZ) rồi add lại ở tốc độ
+ * chạy bình thường (VS1053_SPI_RUN_CLOCK_HZ) - ESP-IDF không cho đổi tốc độ 1 device đang tồn
+ * tại nên phải gỡ/add lại. Tách riêng khỏi vs1053_init() để dùng chung với đường phục hồi
+ * trong vs1053_cancel_song() (xem vs1053_apply_default_registers() ở trên).
+ * @param pDev: con trỏ device VS1053 (2 SPI device hiện tại đang ở VS1053_SPI_INIT_CLOCK_HZ)
+ * @return ESP_OK nếu gỡ + add lại thành công, mã lỗi esp_err_t khác nếu bất kỳ bước nào thất
+ *         bại - bên gọi PHẢI coi sci_handle/sdi_handle không còn chắc chắn hợp lệ trong
+ *         trường hợp này
+ */
+static esp_err_t vs1053_raise_spi_speed(vs1053_handle_t *pDev)
+{
+    esp_err_t lRemoveSciRet = spi_bus_remove_device(pDev->sci_handle);
+    esp_err_t lRemoveSdiRet = spi_bus_remove_device(pDev->sdi_handle);
+
+    if ((lRemoveSciRet != ESP_OK) || (lRemoveSdiRet != ESP_OK))
+    {
+        /* KHÔNG được tiếp tục gọi vs1053_add_spi_devices() nếu gỡ thất bại - hàm đó ghi đè
+           thẳng pDev->sci_handle/sdi_handle, làm mất khả năng gỡ lại handle CŨ nếu nó vẫn còn
+           tồn tại trên bus - rò rỉ vĩnh viễn 1 slot device trên SPI2_HOST_ID */
+        ESP_LOGE(TAG, "spi_bus_remove_device failed (SCI=%s, SDI=%s) - aborting speed raise to avoid handle leak",
+                 esp_err_to_name(lRemoveSciRet), esp_err_to_name(lRemoveSdiRet));
+        return ESP_FAIL;
+    }
+
+    return vs1053_add_spi_devices(pDev, VS1053_SPI_RUN_CLOCK_HZ);
+}
+
 esp_err_t vs1053_init(vs1053_handle_t *pDev)
 {
     /* KHÔNG tự cấu hình GPIO ở đây - Gpio_Init() (driver/gpio/gpio.c) đã cấu hình sẵn reset
@@ -287,43 +394,13 @@ esp_err_t vs1053_init(vs1053_handle_t *pDev)
         return ESP_FAIL;
     }
 
-    /* Cấu hình clock (3.0x = 12.288 MHz) - PHẢI làm trước khi nâng tốc độ SPI bên dưới,
-       nếu không SPI sẽ chạy nhanh hơn khả năng xử lý thật của chip */
-    vs1053_write_sci(pDev, SCI_CLOCKF, 0x6000);
-
-    /* Cấu hình lấy mẫu 44.1kHz, STEREO (bit thấp nhất = 0). LƯU Ý: theo datasheet VS1053b,
-       bit 0 của SCI_AUDATA là cờ mono/stereo (1 = ép mono), KHÔNG phải 1 phần của sample
-       rate - dùng đúng 44100 (số chẵn), không phải 44101, để không vô tình ép chip sang
-       mono */
-    vs1053_write_sci(pDev, SCI_AUDATA, 44100);
-
-    /* Cấu hình chế độ: SDINEW (bắt buộc) + LINE1 (nguồn vào từ input line thay vì mic) */
-    vs1053_write_sci(pDev, SCI_MODE, SM_SDINEW | SM_LINE1);
-
-    /* Thiết lập volume mặc định (50%) */
-    vs1053_set_volume(pDev, 50);
+    /* Ghi các thanh ghi cấu hình mặc định (clock/audio/mode) + volume 50% mặc định - xem
+       vs1053_apply_default_registers() */
+    vs1053_apply_default_registers(pDev, 50U);
 
     /* Đã cấu hình clock xong - nâng tốc độ SPI lên mức chạy bình thường cho CẢ 2 device để
-       tăng thông lượng gửi dữ liệu MP3. Phải remove device cũ (tốc độ thấp) rồi add lại với
-       config mới, ESP-IDF không cho đổi tốc độ 1 device đang tồn tại */
-    esp_err_t lRemoveSciRet = spi_bus_remove_device(pDev->sci_handle);
-    esp_err_t lRemoveSdiRet = spi_bus_remove_device(pDev->sdi_handle);
-
-    if ((lRemoveSciRet != ESP_OK) || (lRemoveSdiRet != ESP_OK))
-    {
-        /* Hiếm khi xảy ra với handle vừa mới add thành công ở trên, nhưng KHÔNG được tiếp tục
-           gọi vs1053_add_spi_devices() bên dưới nếu gỡ thất bại - hàm đó sẽ ghi đè thẳng
-           pDev->sci_handle/sdi_handle bằng handle mới, làm mất khả năng gỡ lại handle CŨ (nếu
-           gỡ thất bại, handle cũ có thể vẫn còn tồn tại trên bus) sau này - rò rỉ vĩnh viễn 1
-           slot device trên SPI2_HOST_ID. Coi đây là lỗi init (dừng lại an toàn) thay vì chỉ
-           log cảnh báo rồi tiếp tục như trước - Mp3_Task đã có sẵn cơ chế halt êm khi
-           vs1053_init() trả về khác ESP_OK (xem Mp3_Task, mp3.c) */
-        ESP_LOGE(TAG, "spi_bus_remove_device failed (SCI=%s, SDI=%s) - aborting speed raise to avoid handle leak",
-                 esp_err_to_name(lRemoveSciRet), esp_err_to_name(lRemoveSdiRet));
-        return ESP_FAIL;
-    }
-
-    esp_err_t lAddRet = vs1053_add_spi_devices(pDev, VS1053_SPI_RUN_CLOCK_HZ);
+       tăng thông lượng gửi dữ liệu MP3 - xem vs1053_raise_spi_speed() */
+    esp_err_t lAddRet = vs1053_raise_spi_speed(pDev);
     if (lAddRet != ESP_OK)
     {
         /* Không nâng được tốc độ SPI -> sci_handle/sdi_handle không còn chắc chắn hợp lệ để
@@ -407,11 +484,90 @@ void vs1053_stop_song(vs1053_handle_t *pDev)
     delay_ms(VS1053_RESET_DELAY_MS);
 }
 
+/**
+ * @brief vs1053_recover_from_stuck_cancel
+ * Phục hồi chip khi SM_CANCEL không tự clear sau VS1053_CANCEL_MAX_FILLER_BYTES (xem
+ * vs1053_cancel_song() bên dưới) - coi như chip đã treo thật giữa chừng, reset cứng qua chân
+ * RESET rồi cấu hình lại TOÀN BỘ từ đầu (clock/audio/mode/volume + tốc độ SPI), đúng y hệt
+ * trình tự vs1053_init() (trừ bước add device lần đầu/test_comm - 2 SPI device đã tồn tại sẵn
+ * từ trước, chỉ cần hạ tốc độ tạm thời rồi nâng lại sau khi cấu hình xong). Không hạ tốc độ
+ * SPI về mức an toàn TRƯỚC khi reset thì có nguy cơ giao tiếp sai ngay sau reset (chip trở về
+ * clock nội bộ mặc định, chưa nhân, trong khi SPI bus vẫn đang chạy ở tốc độ cao) - cùng lý do
+ * đã giải thích trong vs1053_apply_default_registers().
+ * @param pDev: con trỏ device VS1053 (2 SPI device hiện tại đang ở VS1053_SPI_RUN_CLOCK_HZ)
+ * @return
+ */
+static void vs1053_recover_from_stuck_cancel(vs1053_handle_t *pDev)
+{
+    ESP_LOGE(TAG, "SM_CANCEL not cleared after %u bytes - forcing full VS1053 reset+reconfigure",
+             (unsigned)VS1053_CANCEL_MAX_FILLER_BYTES);
+
+    esp_err_t lRemoveSciRet = spi_bus_remove_device(pDev->sci_handle);
+    esp_err_t lRemoveSdiRet = spi_bus_remove_device(pDev->sdi_handle);
+    if ((lRemoveSciRet != ESP_OK) || (lRemoveSdiRet != ESP_OK))
+    {
+        ESP_LOGE(TAG, "spi_bus_remove_device failed during cancel-recovery (SCI=%s, SDI=%s) - giving up",
+                 esp_err_to_name(lRemoveSciRet), esp_err_to_name(lRemoveSdiRet));
+        return;
+    }
+
+    if (vs1053_add_spi_devices(pDev, VS1053_SPI_INIT_CLOCK_HZ) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "vs1053_add_spi_devices failed during cancel-recovery - giving up");
+        return;
+    }
+
+    vs1053_reset(pDev);
+
+    /* Khôi phục đúng volume đang dùng trước đó (pDev->volume, do vs1053_set_volume() luôn
+       cập nhật) thay vì hardcode 50 như vs1053_init() - đây KHÔNG phải lần khởi động đầu tiên */
+    vs1053_apply_default_registers(pDev, pDev->volume);
+
+    if (vs1053_raise_spi_speed(pDev) != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Failed to raise SPI speed after cancel-recovery reset");
+    }
+}
+
 void vs1053_cancel_song(vs1053_handle_t *pDev)
 {
     uint16_t lu16Mode = vs1053_read_sci(pDev, SCI_MODE);
     lu16Mode |= SM_CANCEL;
     vs1053_write_sci(pDev, SCI_MODE, lu16Mode);
+
+    /* Theo đúng thủ tục datasheet VS1053b (mục "Ending Playback"): sau khi set SM_CANCEL,
+       PHẢI tiếp tục gửi dữ liệu (dùng end_fill_byte, giống vs1053_stop_song()) và đọc lại
+       SCI_MODE sau MỖI chunk 32 byte để xác nhận bit SM_CANCEL đã tự clear - chip cần hoàn
+       tất huỷ frame đang decode dở trước khi thực sự sẵn sàng nhận bài mới. Bản trước chỉ set
+       bit rồi coi như xong ngay (không poll, không gửi gì thêm) - qua vài lần đổi bài liên
+       tiếp, nếu đúng lúc chip chưa kịp clear mà Mp3_Task đã bắt đầu gửi bài mới ngay sau đó
+       (vs1053_stop_song()/vs1053_start_song() gọi kế tiếp trong mp3.c), trạng thái decode dở
+       dang tích luỹ dần qua từng lần đổi bài rồi cuối cùng treo hẳn (DREQ timeout thật, xem
+       Mp3_Task) - đúng lỗi đã quan sát được trên board thật ngay sau khi bấm NEXT. */
+    uint8_t lau8Filler[VS1053_CHUNK_SIZE];
+    memset(lau8Filler, pDev->end_fill_byte, VS1053_CHUNK_SIZE);
+
+    bool lbCancelled = false;
+    for (uint32_t lu32Sent = 0; lu32Sent < VS1053_CANCEL_MAX_FILLER_BYTES; lu32Sent += VS1053_CHUNK_SIZE)
+    {
+        vs1053_send_buffer(pDev, lau8Filler, VS1053_CHUNK_SIZE);
+
+        lu16Mode = vs1053_read_sci(pDev, SCI_MODE);
+        if ((lu16Mode & SM_CANCEL) == 0U)
+        {
+            lbCancelled = true;
+            break;
+        }
+    }
+
+    if (lbCancelled == false)
+    {
+        /* Chip không tự clear SM_CANCEL dù đã gửi đủ VS1053_CANCEL_MAX_FILLER_BYTES - coi như
+           treo thật, PHẢI reset cứng + cấu hình lại từ đầu (không chỉ đơn giản bỏ qua như bản
+           trước) để Mp3_Task có cơ hội tiếp tục phát thay vì chắc chắn DREQ timeout ngay sau
+           đó */
+        vs1053_recover_from_stuck_cancel(pDev);
+    }
 }
 
 uint16_t vs1053_get_decoded_time(vs1053_handle_t *pDev)

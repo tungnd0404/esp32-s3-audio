@@ -258,11 +258,10 @@ void vs1053_start_song(vs1053_handle_t *pDev);
  * @brief vs1053_stop_song
  * Xả hết dữ liệu còn dở trong FIFO nội bộ chip bằng cách gửi 2052 byte "end fill byte" (con
  * số chuẩn theo tài liệu VS1053), rồi delay để chip xử lý xong. KHÔNG set bit SM_CANCEL và
- * KHÔNG poll xác nhận chip đã dừng hẳn - đủ dùng cho trường hợp hiện tại (chỉ gọi khi hết
- * bài tự nhiên - EOF, xem Mp3_StreamSong trong mp3.c), nhưng nếu sau này cần tính năng "dừng
- * đột ngột giữa bài" (vd nút Stop/Skip khi đang phát dở 1 frame), nên bổ sung SM_CANCEL +
- * poll SCI_MODE xác nhận bit tự clear (xem vs1053_cancel_song), vì gửi filler đơn thuần
- * không đảm bảo huỷ ngay 1 frame đang decode dở.
+ * KHÔNG poll xác nhận chip đã dừng hẳn - CHỈ dùng cho trường hợp hết bài TỰ NHIÊN (EOF, xem
+ * Mp3_StreamSong trong mp3.c) vì lúc đó không có frame nào đang decode dở cần huỷ gấp, khác
+ * với chuyển bài GIỮA CHỪNG (xem vs1053_cancel_song() - đã tự làm đủ việc flush+poll, KHÔNG
+ * gọi thêm hàm này sau đó nữa).
  * @param pDev: con trỏ device VS1053
  * @return
  */
@@ -270,12 +269,16 @@ void vs1053_stop_song(vs1053_handle_t *pDev);
 
 /**
  * @brief vs1053_cancel_song
- * Set bit SM_CANCEL trong SCI_MODE để yêu cầu chip huỷ ngay bài đang giải mã dở - chip sẽ tự
- * clear bit này khi đã xử lý xong yêu cầu huỷ (KHÔNG được hàm này tự poll xác nhận, bên gọi
- * tự đọc lại SCI_MODE nếu cần chắc chắn). Được Mp3_Task gọi khi chuyển bài GIỮA CHỪNG (case
- * BTN_STATE_NEXT/PREV/PLAY_NEW trong mp3.c, TRƯỚC vs1053_stop_song()/vs1053_start_song()) -
- * khác với trường hợp hết bài tự nhiên (EOF, Mp3_StreamSong chỉ gọi vs1053_stop_song() vì
- * không có frame nào đang decode dở cần huỷ gấp).
+ * Huỷ bài đang giải mã dở theo ĐÚNG thủ tục datasheet VS1053b (mục "Ending Playback"): set
+ * bit SM_CANCEL trong SCI_MODE, rồi tiếp tục gửi end_fill_byte + đọc lại SCI_MODE sau MỖI
+ * chunk 32 byte để xác nhận bit đã tự clear (tối đa VS1053_CANCEL_MAX_FILLER_BYTES byte). Nếu
+ * chip không tự clear trong giới hạn đó, coi như treo thật - tự động reset cứng (qua chân
+ * RESET) + cấu hình lại toàn bộ thanh ghi/tốc độ SPI trước khi trả về (xem
+ * vs1053_recover_from_stuck_cancel() trong vs1053.c), để lần stream kế tiếp không chắc chắn
+ * gặp lại DREQ timeout. Được Mp3_Task gọi khi chuyển bài GIỮA CHỪNG (case
+ * BTN_STATE_NEXT/PREV/PLAY_NEW trong mp3.c, TRƯỚC vs1053_start_song() - KHÔNG cần gọi thêm
+ * vs1053_stop_song() sau hàm này nữa, đã tự flush xong) - khác với trường hợp hết bài tự
+ * nhiên (EOF, Mp3_StreamSong chỉ gọi vs1053_stop_song()).
  * @param pDev: con trỏ device VS1053
  * @return
  */

@@ -50,8 +50,10 @@ void Button_NextISR(void *arg)
            sau ghi đè giá trị trước. eSetBits gộp (OR) các bit lại thay vì ghi đè nên 2 sự kiện
            khác bit luôn cùng tồn tại tới khi PlayerManager_Task xử lý, không còn rơi mất - xem
            PlayerManager_Task (player_manager.c) xử lý từng bit độc lập thay vì switch trên 1
-           giá trị duy nhất. BTN1_BIT/BTN2_BIT/BTN3_BIT khai báo sẵn trong player_manager.h. */
-        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN1_BIT, eSetBits, &xHigherPriorityTaskWoken);
+           giá trị duy nhất. Bit gửi đi suy trực tiếp từ Button_EventType_e (1U << BTN_EVENT_xxx)
+           thay vì định nghĩa thêm 1 bộ macro bitmask riêng - tránh 2 bộ tên cùng đại diện cho
+           đúng 3 nút NEXT/PREV/PLAY. */
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, (1U << BTN_EVENT_NEXT), eSetBits, &xHigherPriorityTaskWoken);
 
         if (xHigherPriorityTaskWoken)
         {
@@ -80,7 +82,7 @@ void Button_PrevISR(void *arg)
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
         /* eSetBits - xem giải thích đầy đủ trong Button_NextISR() ở trên */
-        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN2_BIT, eSetBits, &xHigherPriorityTaskWoken);
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, (1U << BTN_EVENT_PREV), eSetBits, &xHigherPriorityTaskWoken);
 
         if (xHigherPriorityTaskWoken)
         {
@@ -109,7 +111,7 @@ void Button_PlayISR(void *arg)
         BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
         /* eSetBits - xem giải thích đầy đủ trong Button_NextISR() ở trên */
-        xTaskNotifyFromISR(xPlayerManagerTaskHandle, BTN3_BIT, eSetBits, &xHigherPriorityTaskWoken);
+        xTaskNotifyFromISR(xPlayerManagerTaskHandle, (1U << BTN_EVENT_PLAY), eSetBits, &xHigherPriorityTaskWoken);
 
         if (xHigherPriorityTaskWoken)
         {

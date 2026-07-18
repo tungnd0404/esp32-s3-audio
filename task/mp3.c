@@ -7,6 +7,7 @@
 #include "ring_buffer.h"
 #include "player_manager.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -162,6 +163,14 @@ static bool Mp3_StreamSong(vs1053_handle_t *pDev, uint32_t *pu32NotifyValue, boo
         return false;
     }
 
+    /* [DEBUG TẠM] in decodeTime/số chunk gửi mỗi ~1s để kiểm tra VS1053 có thực sự giải mã
+       tiến triển không (nếu decodeTime đứng yên trong khi chunksPerSec > 0, nghĩa là dữ liệu
+       vẫn được gửi đều nhưng chip không giải mã được - xem thêm log [DEBUG] DREQ trong
+       vs1053.c). XOÁ khối debug này (3 biến local + đoạn log cuối vòng lặp) sau khi xác định
+       xong nguyên nhân. */
+    uint32_t lu32DbgLastLogMs = (uint32_t)(esp_timer_get_time() / 1000);
+    uint32_t lu32DbgChunkCount = 0U;
+
     /* Vòng lặp stream, chạy tới khi có notification mới cần xử lý (Pause/đổi bài/về menu...)
        hoặc hết bài (EOF) - giống hệt Oled_PlayAnimation() */
     while (1)
@@ -211,6 +220,28 @@ static bool Mp3_StreamSong(vs1053_handle_t *pDev, uint32_t *pu32NotifyValue, boo
             ESP_LOGE(TAG, "VS1053 communication lost while streaming");
             *pbHwFailure = true;
             return false;
+        }
+
+        /* [DEBUG TẠM] in vài byte đầu của chunk NGAY TRƯỚC KHI trả lại cho ring buffer (sau
+           khi trả, con trỏ lpChunk có thể bị ghi đè bởi lần đọc kế tiếp) - để kiểm tra dữ
+           liệu thật sự gửi cho VS1053 có giống MP3 hợp lệ không (frame header MP3 thường bắt
+           đầu bằng 0xFF 0xFB/0xFA/0xF3/0xF2...). Chỉ in mỗi ~1s, dùng chung mốc thời gian với
+           log chunks/s/decodeTime bên dưới. XOÁ khối debug này sau khi xác định xong nguyên
+           nhân. */
+        lu32DbgChunkCount++;
+        uint32_t lu32DbgNowMs = (uint32_t)(esp_timer_get_time() / 1000);
+        if ((lu32DbgNowMs - lu32DbgLastLogMs) >= 1000U)
+        {
+            size_t lu32DbgDumpLen = (lChunkLen < 8U) ? lChunkLen : 8U;
+            ESP_LOGW(TAG, "[DEBUG] chunks/s=%u decodeTime=%u first_bytes=%02X %02X %02X %02X %02X %02X %02X %02X (len=%u)",
+                     (unsigned)lu32DbgChunkCount, (unsigned)vs1053_get_decoded_time(pDev),
+                     lu32DbgDumpLen > 0 ? lpChunk[0] : 0, lu32DbgDumpLen > 1 ? lpChunk[1] : 0,
+                     lu32DbgDumpLen > 2 ? lpChunk[2] : 0, lu32DbgDumpLen > 3 ? lpChunk[3] : 0,
+                     lu32DbgDumpLen > 4 ? lpChunk[4] : 0, lu32DbgDumpLen > 5 ? lpChunk[5] : 0,
+                     lu32DbgDumpLen > 6 ? lpChunk[6] : 0, lu32DbgDumpLen > 7 ? lpChunk[7] : 0,
+                     (unsigned)lChunkLen);
+            lu32DbgChunkCount = 0U;
+            lu32DbgLastLogMs = lu32DbgNowMs;
         }
 
         RingBuffer_ReturnItem(xMp3RingBuffer, lpChunk);
@@ -287,11 +318,13 @@ void Mp3_Init(void)
  *
  * 4 nhánh xử lý theo buttonState:
  * - BTN_STATE_NEXT/PREV/PLAY_NEW: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
- *   -> huỷ + xả sạch trạng thái decode của bài CŨ (vs1053_cancel_song + vs1053_stop_song),
- *   rồi mới chuẩn bị trạng thái cho bài MỚI (vs1053_start_song) TRƯỚC KHI gọi
- *   Mp3_StreamSong() - bắt buộc phải huỷ/xả bài cũ trước vì đây là chuyển bài GIỮA CHỪNG (VS1053
- *   có thể đang decode dở 1 frame của bài cũ khi Next/Prev tới), khác với BTN_STATE_PLAY (chỉ
- *   Resume, không có bài cũ nào đang dở cần dọn). Sdcard_Task nhận CÙNG notification này để
+ *   -> huỷ + xả sạch trạng thái decode của bài CŨ (vs1053_cancel_song, ĐÃ TỪNG bắt đầu decode
+ *   trước đó - xem lbHasStartedBefore), rồi mới chuẩn bị trạng thái cho bài MỚI
+ *   (vs1053_start_song) TRƯỚC KHI gọi Mp3_StreamSong() - bắt buộc phải huỷ bài cũ trước vì đây
+ *   là chuyển bài GIỮA CHỪNG (VS1053 có thể đang decode dở 1 frame của bài cũ khi Next/Prev
+ *   tới), khác với BTN_STATE_PLAY (chỉ Resume, không có bài cũ nào đang dở cần dọn). Lần
+ *   BTN_STATE_PLAY_NEW ĐẦU TIÊN sau boot bỏ qua vs1053_cancel_song() vì chưa từng decode gì.
+ *   Sdcard_Task nhận CÙNG notification này để
  *   tự mở file mp3 mới và nạp lại xMp3RingBuffer từ đầu (xem Sdcard_LoadSong trong sdcard.c)
  *   - Mp3_Task không tự đụng tới thẻ SD nữa.
  * - BTN_STATE_PLAY: bấm Play (đầu tiên hoặc Resume sau Pause), bài không đổi -> chạy thẳng
@@ -331,6 +364,13 @@ void Mp3_Task(void *pvParameters)
        nếu true thì Mp3_Task chuyển sang halt êm (cùng idiom với lỗi vs1053_init() bên dưới)
        thay vì tiếp tục cố gắng stream vào 1 chip không còn phản hồi */
     bool lbHwFailure = false;
+    /* true = đã từng thực sự bắt đầu decode ít nhất 1 bài (vs1053_start_song() đã được gọi
+       trước đó) - dùng để BỎ QUA vs1053_cancel_song() ở lần BTN_STATE_PLAY_NEW ĐẦU TIÊN sau
+       boot: lúc đó VS1053 chưa từng decode gì (vừa vs1053_init() xong), set SM_CANCEL để "huỷ
+       bài đang decode dở" trên 1 chip đang rảnh không có gì để huỷ khiến bit này không bao
+       giờ tự clear (đã quan sát được trên board thật - "SM_CANCEL not cleared" xảy ra ngay ở
+       lần chọn bài đầu tiên), buộc phục hồi bằng reset cứng oan uổng dù chưa hề có lỗi gì */
+    bool lbHasStartedBefore = false;
 
     /* Tạo xMp3CommandQueue/xMp3RingBuffer TRƯỚC vs1053_init() - đây là phần nhanh (chỉ cấp
        phát RAM), làm trước để 2 object này sẵn sàng càng sớm càng tốt, không phải chờ
@@ -385,15 +425,20 @@ void Mp3_Task(void *pvParameters)
                 /* Chuyển bài GIỮA CHỪNG - VS1053 có thể đang decode dở 1 frame của bài cũ
                    lúc này, không dọn sạch trước thì dữ liệu bài mới bơm vào ngay sau có thể
                    trộn lẫn với trạng thái decode cũ, gây rè/click ở điểm chuyển bài:
-                   1. vs1053_cancel_song(): báo chip huỷ decode bài cũ (set SM_CANCEL)
-                   2. vs1053_stop_song(): xả nốt FIFO nội bộ bằng end_fill_byte CỦA BÀI CŨ
-                      (chưa refresh - đúng ý muốn xả sạch đúng codec/patch đang decode dở)
-                   3. vs1053_start_song(): đọc lại end_fill_byte mới, sẵn sàng cho bài MỚI
-                   (Không poll xác nhận SM_CANCEL tự clear như khuyến nghị đầy đủ của
-                   datasheet - đơn giản hoá chấp nhận được cho player nghe nhạc thường) */
-                vs1053_cancel_song(&gVs1053DeviceInfo);
-                vs1053_stop_song(&gVs1053DeviceInfo);
+                   1. vs1053_cancel_song(): set SM_CANCEL, gửi end_fill_byte CỦA BÀI CŨ (chưa
+                      refresh) + poll SCI_MODE xác nhận bit tự clear đúng theo datasheet - đã
+                      tự làm luôn việc xả FIFO, KHÔNG cần gọi thêm vs1053_stop_song() nữa (xem
+                      vs1053_cancel_song() trong vs1053.c - có tự phục hồi bằng reset cứng nếu
+                      chip không tự clear SM_CANCEL trong giới hạn cho phép)
+                   2. vs1053_start_song(): đọc lại end_fill_byte mới, sẵn sàng cho bài MỚI
+                   Bỏ qua bước 1 nếu đây là lần bắt đầu decode ĐẦU TIÊN sau boot (xem
+                   lbHasStartedBefore) - không có bài nào đang decode dở để huỷ */
+                if (lbHasStartedBefore == true)
+                {
+                    vs1053_cancel_song(&gVs1053DeviceInfo);
+                }
                 vs1053_start_song(&gVs1053DeviceInfo);
+                lbHasStartedBefore = true;
                 lbHasPendingNotify = Mp3_StreamSong(&gVs1053DeviceInfo, &lu32button_evt, &lbHwFailure);
                 break;
 

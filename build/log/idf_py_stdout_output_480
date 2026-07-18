@@ -1,0 +1,423 @@
+Command: E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools/idf_monitor.py -p COM4 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 E:\project\Audio\build\audio.elf E:\project\Audio\build\bootloader\bootloader.elf --force-color -m 'E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe' 'E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools\idf.py' '-p' 'COM4'
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2a (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (24) boot: ESP-IDF v5.5.1 2nd stage bootloader[0m
+[0;32mI (25) boot: compile time Jul 18 2026 10:20:18[0m
+[0;32mI (25) boot: Multicore bootloader[0m
+[0;32mI (25) boot: chip revision: v0.2[0m
+[0;32mI (28) boot: efuse block revision: v1.3[0m
+[0;32mI (31) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (35) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (39) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (43) boot: Enabling RNG early entropy source...[0m
+[0;32mI (47) boot: Partition Table:[0m
+[0;32mI (50) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (63) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (69) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (76) boot: End of partition table[0m
+[0;32mI (79) esp_image: segment 0: paddr=00010020 vaddr=3c040020 size=11f50h ( 73552) map[0m
+[0;32mI (99) esp_image: segment 1: paddr=00021f78 vaddr=3fc95b00 size=03250h ( 12880) load[0m
+[0;32mI (102) esp_image: segment 2: paddr=000251d0 vaddr=40374000 size=0ae48h ( 44616) load[0m
+[0;32mI (113) esp_image: segment 3: paddr=00030020 vaddr=42000020 size=33ac4h (211652) map[0m
+[0;32mI (151) esp_image: segment 4: paddr=00063aec vaddr=4037ee48 size=06bf8h ( 27640) load[0m
+[0;32mI (157) esp_image: segment 5: paddr=0006a6ec vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (164) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (164) boot: Disabling RNG early entropy source...[0m
+[0;32mI (176) cpu_start: Multicore app[0m
+[0;32mI (185) cpu_start: Pro cpu start user code[0m
+[0;32mI (185) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (185) app_init: Application information:[0m
+[0;32mI (185) app_init: Project name:     audio[0m
+[0;32mI (189) app_init: App version:      build_success-2-gb0b964b-dirty[0m
+[0;32mI (195) app_init: Compile time:     Jul 18 2026 10:19:58[0m
+[0;32mI (200) app_init: ELF file SHA256:  222afe31d...[0m
+[0;32mI (204) app_init: ESP-IDF:          v5.5.1[0m
+[0;32mI (208) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (212) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (216) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (220) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (226) heap_init: At 3FCA4A78 len 00044C98 (275 KiB): RAM[0m
+[0;32mI (231) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (236) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (241) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (248) spi_flash: detected chip: boya[0m
+[0;32mI (250) spi_flash: flash io: dio[0m
+[0;33mW (253) spi_flash: Detected size(16384k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (266) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (272) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (279) main_task: Started on CPU0[0m
+[0;32mI (299) main_task: Calling app_main()[0m
+[0;32mI (299) main_task: Returned from app_main()[0m
+[0;32mI (299) SSD1306: New i2c driver is used[0m
+[0;33mW (299) SSD1306: Will not install i2c master driver[0m
+[0;32mI (309) SSD1306: OLED configured successfully[0m
+[0;32mI (339) SDCARD: SD card mounted[0m
+Name: EB1QT
+Type: SDHC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 30528MB
+CSD: ver=2, sector_size=512, capacity=62521344 read_bl_len=9
+SSR: bus_width=1
+Found: System Volume Information
+Found: songs.db
+Found: 160.mp3
+Added: 160
+Found: 160.bin
+Found: 601.mp3
+Added: 601
+Found: 601.bin
+Total songs: 2
+MP3: /sdcard/160.mp3
+BIN: /sdcard/160.bin
+MP3: /sdcard/601.mp3
+BIN: /sdcard/601.bin
+[0;32mI (369) DOUBLE_BUFFER: Double buffer module initialized[0m
+[0;32mI (499) VS1053: VS1053 initialized successfully[0m
+[0;33mW (5109) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (8689) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (8869) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (12399) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (12919) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (13319) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (13469) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (13669) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (26249) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (26449) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (29699) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (29949) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (31069) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (31199) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (37359) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (38369) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (39379) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (40259) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (40419) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (41239) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (41869) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (41999) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (42369) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (42499) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (42849) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (43529) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+[0;33mW (1836149) PLAYER_MGR: [DEBUG] button bitmask = 0x06 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON UP
+BUTTON SELECT AND START PLAYING
+[0;33mW (1836149) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+[0;33mW (1836149) VS1053: [DEBUG] DREQ waited=2 immediate=8 (last ~1s)[0m
+BUTTON NEXT
+[0;32mI (1836159) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;32mI (1836209) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+Guru Meditation Error: Core  1 panic'ed (LoadProhibited). Exception was unhandled.
+
+Core  1 register dump:
+PC      : 0x40056f17  PS      : 0x00060430  A0      : 0x8200c49e  A1      : 0x3fca9360  
+A2      : 0x3fca9381  A3      : 0x00000000  A4      : 0x00000080  A5      : 0x3fca9381  
+A6      : 0x00000001  A7      : 0x0000abab  A8      : 0x82030855  A9      : 0x3fca9280  
+A10     : 0x00000000  A11     : 0x3fca9340  A12     : 0x00000001  A13     : 0x00000064  
+A14     : 0x00000000  A15     : 0x00000000  SAR     : 0x00000020  EXCCAUSE: 0x0000001c  
+EXCVADDR: 0x00000000  LBEG    : 0x40056f5c  LEND    : 0x40056f72  LCOUNT  : 0xffffffff  
+
+
+Backtrace: 0x40056f14:0x3fca9360 0x4200c49b:0x3fca9370 0x4200c555:0x3fca9440 0x4200a539:0x3fca9460 0x4200a587:0x3fca9480 0x4200a673:0x3fca94a0 0x4037c271:0x3fca94e0
+
+
+
+
+ELF file SHA256: 222afe31d
+
+Rebooting...
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0xc (RTC_SW_CPU_RST),boot:0x2a (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4037dd41
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (29) boot: ESP-IDF v5.5.1 2nd stage bootloader[0m
+[0;32mI (29) boot: compile time Jul 18 2026 10:20:18[0m
+[0;32mI (29) boot: Multicore bootloader[0m
+[0;32mI (29) boot: chip revision: v0.2[0m
+[0;32mI (32) boot: efuse block revision: v1.3[0m
+[0;32mI (36) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (40) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (43) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (47) boot: Enabling RNG early entropy source...[0m
+[0;32mI (52) boot: Partition Table:[0m
+[0;32mI (54) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (61) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (67) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (74) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (80) boot: End of partition table[0m
+[0;32mI (83) esp_image: segment 0: paddr=00010020 vaddr=3c040020 size=11f50h ( 73552) map[0m
+[0;32mI (104) esp_image: segment 1: paddr=00021f78 vaddr=3fc95b00 size=03250h ( 12880) load[0m
+[0;32mI (107) esp_image: segment 2: paddr=000251d0 vaddr=40374000 size=0ae48h ( 44616) load[0m
+[0;32mI (117) esp_image: segment 3: paddr=00030020 vaddr=42000020 size=33ac4h (211652) map[0m
+[0;32mI (155) esp_image: segment 4: paddr=00063aec vaddr=4037ee48 size=06bf8h ( 27640) load[0m
+[0;32mI (162) esp_image: segment 5: paddr=0006a6ec vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (169) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (169) boot: Disabling RNG early entropy source...[0m
+[0;32mI (181) cpu_start: Multicore app[0m
+[0;32mI (190) cpu_start: Pro cpu start user code[0m
+[0;32mI (190) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (190) app_init: Application information:[0m
+[0;32mI (190) app_init: Project name:     audio[0m
+[0;32mI (194) app_init: App version:      build_success-2-gb0b964b-dirty[0m
+[0;32mI (200) app_init: Compile time:     Jul 18 2026 10:19:58[0m
+[0;32mI (205) app_init: ELF file SHA256:  222afe31d...[0m
+[0;32mI (209) app_init: ESP-IDF:          v5.5.1[0m
+[0;32mI (213) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (217) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (221) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (225) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (231) heap_init: At 3FCA4A78 len 00044C98 (275 KiB): RAM[0m
+[0;32mI (236) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (241) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (246) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (253) spi_flash: detected chip: boya[0m
+[0;32mI (255) spi_flash: flash io: dio[0m
+[0;33mW (258) spi_flash: Detected size(16384k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (270) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (277) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (284) main_task: Started on CPU0[0m
+[0;32mI (304) main_task: Calling app_main()[0m
+[0;32mI (304) main_task: Returned from app_main()[0m
+[0;32mI (304) SSD1306: New i2c driver is used[0m
+[0;33mW (304) SSD1306: Will not install i2c master driver[0m
+[0;32mI (314) SSD1306: OLED configured successfully[0m
+[0;32mI (344) SDCARD: SD card mounted[0m
+Name: EB1QT
+Type: SDHC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 30528MB
+CSD: ver=2, sector_size=512, capacity=62521344 read_bl_len=9
+SSR: bus_width=1
+Found: System Volume Information
+Found: songs.db
+Found: 160.mp3
+Added: 160
+Found: 160.bin
+Found: 601.mp3
+Added: 601
+Found: 601.bin
+Total songs: 2
+MP3: /sdcard/160.mp3
+BIN: /sdcard/160.bin
+MP3: /sdcard/601.mp3
+BIN: /sdcard/601.bin
+[0;32mI (374) DOUBLE_BUFFER: Double buffer module initialized[0m
+[0;32mI (504) VS1053: VS1053 initialized successfully[0m
+[0;33mW (2644504) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON SELECT AND START PLAYING
+[0;33mW (2644504) VS1053: [DEBUG] DREQ waited=1 immediate=9 (last ~1s)[0m
+[0;32mI (2644514) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (2645504) VS1053: [DEBUG] DREQ waited=0 immediate=2620 (last ~1s)[0m
+[0;33mW (2645614) MP3: [DEBUG] chunks/s=2786 decodeTime=2644[0m
+[0;33mW (2646524) VS1053: [DEBUG] DREQ waited=0 immediate=2779 (last ~1s)[0m
+[0;33mW (2646644) MP3: [DEBUG] chunks/s=2847 decodeTime=2644[0m
+[0;33mW (2647524) VS1053: [DEBUG] DREQ waited=0 immediate=2884 (last ~1s)[0m
+[0;33mW (2647674) MP3: [DEBUG] chunks/s=2880 decodeTime=2644[0m
+[0;33mW (2648534) VS1053: [DEBUG] DREQ waited=0 immediate=2735 (last ~1s)[0m
+[0;33mW (2648674) MP3: [DEBUG] chunks/s=2873 decodeTime=2644[0m
+[0;33mW (2649534) VS1053: [DEBUG] DREQ waited=0 immediate=2900 (last ~1s)[0m
+[0;33mW (2649684) MP3: [DEBUG] chunks/s=2743 decodeTime=2644[0m
+[0;33mW (2650024) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (2650124) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+DOUBLE CLICK -> MENU
+[0;33mW (2650234) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON SELECT AND START PLAYING
+[0;32mI (2650254) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (2650534) VS1053: [DEBUG] DREQ waited=0 immediate=2014 (last ~1s)[0m
+[0;33mW (2651344) MP3: [DEBUG] chunks/s=2866 decodeTime=2644[0m
+[0;33mW (2651424) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (2651764) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PLAY
+[0;33mW (2651764) VS1053: [DEBUG] DREQ waited=0 immediate=2432 (last ~1s)[0m
+[0;33mW (2651954) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+DOUBLE CLICK -> MENU
+[0;33mW (2652794) VS1053: [DEBUG] DREQ waited=0 immediate=2849 (last ~1s)[0m
+[0;33mW (2652794) MP3: [DEBUG] chunks/s=2848 decodeTime=2644[0m
+[0;33mW (2653364) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (2653804) VS1053: [DEBUG] DREQ waited=0 immediate=2721 (last ~1s)[0m
+[0;33mW (2653804) MP3: [DEBUG] chunks/s=2720 decodeTime=2644[0m
+[0;33mW (2654494) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON SELECT AND START PLAYING
+[0;32mI (2654534) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (2654804) VS1053: [DEBUG] DREQ waited=0 immediate=2514 (last ~1s)[0m
+[0;33mW (2655634) MP3: [DEBUG] chunks/s=2705 decodeTime=2644[0m
+[0;33mW (2655754) DOUBLE_BUFFER: Frame 30 not in any buffer, loading urgently[0m
+[0;33mW (2655834) VS1053: [DEBUG] DREQ waited=0 immediate=2688 (last ~1s)[0m
+[0;33mW (2656634) MP3: [DEBUG] chunks/s=2730 decodeTime=2644[0m
+[0;33mW (2656854) VS1053: [DEBUG] DREQ waited=0 immediate=2730 (last ~1s)[0m
+[0;33mW (2657634) MP3: [DEBUG] chunks/s=2566 decodeTime=2644[0m
+[0;33mW (2657874) VS1053: [DEBUG] DREQ waited=0 immediate=2729 (last ~1s)[0m
+[0;33mW (2658654) MP3: [DEBUG] chunks/s=2720 decodeTime=2644[0m
+[0;33mW (2658894) VS1053: [DEBUG] DREQ waited=0 immediate=2730 (last ~1s)[0m
+[0;33mW (2659674) MP3: [DEBUG] chunks/s=2720 decodeTime=2644[0m
+[0;33mW (2659914) VS1053: [DEBUG] DREQ waited=0 immediate=2729 (last ~1s)[0m
+[0;33mW (2660694) MP3: [DEBUG] chunks/s=2720 decodeTime=2644[0m
+[0;33mW (2660934) VS1053: [DEBUG] DREQ waited=0 immediate=2730 (last ~1s)[0m
+[0;33mW (2661714) MP3: [DEBUG] chunks/s=2720 decodeTime=2644[0m
+[0;33mW (2661954) VS1053: [DEBUG] DREQ waited=0 immediate=2729 (last ~1s)[0m
+[0;33mW (3089644) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (3090554) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON NEXT
+[0;33mW (3090554) VS1053: [DEBUG] DREQ waited=0 immediate=1412 (last ~1s)[0m
+[0;32mI (3090594) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (3092064) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON PREV
+[0;33mW (3092064) VS1053: [DEBUG] DREQ waited=0 immediate=69 (last ~1s)[0m
+[0;32mI (3092094) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (3092274) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON PREV
+[0;32mI (3092284) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (3093114) PLAYER_MGR: [DEBUG] button bitmask = 0x02 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON PREV
+[0;33mW (3093114) VS1053: [DEBUG] DREQ waited=0 immediate=138 (last ~1s)[0m
+[0;32mI (3093134) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (3093974) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON NEXT
+[0;32mI (3094034) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (3094724) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PLAY
+[0;33mW (3094724) VS1053: [DEBUG] DREQ waited=0 immediate=138 (last ~1s)[0m
+[0;33mW (3094854) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+DOUBLE CLICK -> MENU
+[0;33mW (3094954) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON SELECT AND START PLAYING
+[0;32mI (3095014) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (3095044) DOUBLE_BUFFER: Frame 135 not in any buffer, loading urgently[0m
+[0;33mW (3095124) DOUBLE_BUFFER: Frame 150 not in any buffer, loading urgently[0m
+[0;33mW (3095724) VS1053: [DEBUG] DREQ waited=0 immediate=2560 (last ~1s)[0m
+[0;33mW (3096074) MP3: [DEBUG] chunks/s=2738 decodeTime=9[0m
+[0;33mW (3096194) DOUBLE_BUFFER: Frame 165 not in any buffer, loading urgently[0m
+[0;33mW (3096384) DOUBLE_BUFFER: Frame 180 not in any buffer, loading urgently[0m
+[0;33mW (3096744) VS1053: [DEBUG] DREQ waited=0 immediate=2720 (last ~1s)[0m
+[0;33mW (3097094) MP3: [DEBUG] chunks/s=2737 decodeTime=9[0m
+[0;33mW (3097384) DOUBLE_BUFFER: Frame 195 not in any buffer, loading urgently[0m
+[0;33mW (3097764) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (3098124) MP3: [DEBUG] chunks/s=2737 decodeTime=9[0m
+[0;33mW (3098784) VS1053: [DEBUG] DREQ waited=0 immediate=2747 (last ~1s)[0m
+[0;33mW (3099144) MP3: [DEBUG] chunks/s=2737 decodeTime=9[0m
+[0;33mW (3099804) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (3100164) MP3: [DEBUG] chunks/s=2737 decodeTime=9[0m
+[0;33mW (3100824) VS1053: [DEBUG] DREQ waited=0 immediate=2747 (last ~1s)[0m
+[0;33mW (3101184) MP3: [DEBUG] chunks/s=2737 decodeTime=9[0m
+[0;33mW (3101844) VS1053: [DEBUG] DREQ waited=0 immediate=2746 (last ~1s)[0m
+[0;33mW (3102204) MP3: [DEBUG] chunks/s=2737 decodeTime=9[0m
+[0;33mW (3102864) VS1053: [DEBUG] DREQ waited=0 immediate=2747 (last ~1s)[0m
+[0;33mW (3108764) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (3109064) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PLAY
+[0;33mW (3109064) VS1053: [DEBUG] DREQ waited=0 immediate=135 (last ~1s)[0m
+[0;33mW (3109224) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+DOUBLE CLICK -> MENU
+[0;33mW (3110264) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (3110414) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (3110964) PLAYER_MGR: [DEBUG] button bitmask = 0x01 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON DOWN
+[0;33mW (3112254) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON SELECT AND START PLAYING
+[0;33mW (3112254) VS1053: [DEBUG] DREQ waited=0 immediate=66 (last ~1s)[0m
+[0;32mI (3112274) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (3112304) DOUBLE_BUFFER: Frame 135 not in any buffer, loading urgently[0m
+[0;33mW (3112444) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (3112444) DOUBLE_BUFFER: Frame 150 not in any buffer, loading urgently[0m
+[0;33mW (3118144) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PLAY
+[0;33mW (3118144) VS1053: [DEBUG] DREQ waited=0 immediate=364 (last ~1s)[0m
+[0;33mW (3118174) DOUBLE_BUFFER: Frame 165 not in any buffer, loading urgently[0m
+[0;33mW (3118314) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+DOUBLE CLICK -> MENU
+[0;33mW (3119144) VS1053: [DEBUG] DREQ waited=0 immediate=2838 (last ~1s)[0m
+[0;33mW (3119144) MP3: [DEBUG] chunks/s=2836 decodeTime=9[0m
+[0;33mW (3119524) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON SELECT AND START PLAYING
+[0;32mI (3119554) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (3120174) VS1053: [DEBUG] DREQ waited=0 immediate=2505 (last ~1s)[0m
+[0;33mW (3120474) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (3120644) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+DOUBLE CLICK -> MENU
+[0;33mW (3121204) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+BUTTON SELECT AND START PLAYING
+[0;33mW (3121204) VS1053: [DEBUG] DREQ waited=0 immediate=808 (last ~1s)[0m
+[0;32mI (3121234) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (3121264) DOUBLE_BUFFER: Frame 135 not in any buffer, loading urgently[0m
+[0;33mW (3121364) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (3121404) DOUBLE_BUFFER: Frame 150 not in any buffer, loading urgently[0m
+[0;33mW (3122244) PLAYER_MGR: [DEBUG] button bitmask = 0x04 (BTN1=Next BTN2=Prev BTN3=Play)[0m
+SINGLE CLICK
+PLAY
+[0;33mW (3122244) VS1053: [DEBUG] DREQ waited=0 immediate=339 (last ~1s)[0m
+[0;33mW (3122374) DOUBLE_BUFFER: Frame 165 not in any buffer, loading urgently[0m
+[0;33mW (3123254) VS1053: [DEBUG] DREQ waited=0 immediate=2864 (last ~1s)[0m
+[0;33mW (3123254) MP3: [DEBUG] chunks/s=2856 decodeTime=9[0m
+[0;33mW (3124254) VS1053: [DEBUG] DREQ waited=0 immediate=2902 (last ~1s)[0m
+[0;33mW (3124254) MP3: [DEBUG] chunks/s=2895 decodeTime=9[0m
+[0;33mW (3125264) VS1053: [DEBUG] DREQ waited=0 immediate=2752 (last ~1s)[0m
+[0;33mW (3125264) MP3: [DEBUG] chunks/s=2740 decodeTime=9[0m
+[0;33mW (3126264) VS1053: [DEBUG] DREQ waited=0 immediate=2902 (last ~1s)[0m
+[0;33mW (3126264) MP3: [DEBUG] chunks/s=2895 decodeTime=9[0m
+[0;33mW (3127284) VS1053: [DEBUG] DREQ waited=0 immediate=2769 (last ~1s)[0m
+[0;33mW (3127284) MP3: [DEBUG] chunks/s=2756 decodeTime=9[0m
+[0;33mW (3128314) VS1053: [DEBUG] DREQ waited=0 immediate=2892 (last ~1s)[0m
+[0;33mW (3128314) MP3: [DEBUG] chunks/s=2882 decodeTime=9[0m
+[0;33mW (3129314) VS1053: [DEBUG] DREQ waited=0 immediate=2902 (last ~1s)[0m
+[0;33mW (3129314) MP3: [DEBUG] chunks/s=2895 decodeTime=9[0m
