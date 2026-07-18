@@ -1,0 +1,334 @@
+Command: E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools/idf_monitor.py -p COM4 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 E:\project\Audio\build\audio.elf E:\project\Audio\build\bootloader\bootloader.elf --force-color -m 'E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe' 'E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools\idf.py' '-p' 'COM4'
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2a (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (24) boot: ESP-IDF v5.5.1 2nd stage bootloader[0m
+[0;32mI (25) boot: compile time Jul 18 2026 10:20:18[0m
+[0;32mI (25) boot: Multicore bootloader[0m
+[0;32mI (25) boot: chip revision: v0.2[0m
+[0;32mI (28) boot: efuse block revision: v1.3[0m
+[0;32mI (31) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (35) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (39) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (43) boot: Enabling RNG early entropy source...[0m
+[0;32mI (47) boot: Partition Table:[0m
+[0;32mI (50) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (63) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (69) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (76) boot: End of partition table[0m
+[0;32mI (79) esp_image: segment 0: paddr=00010020 vaddr=3c040020 size=123b0h ( 74672) map[0m
+[0;32mI (100) esp_image: segment 1: paddr=000223d8 vaddr=3fc94900 size=03148h ( 12616) load[0m
+[0;32mI (102) esp_image: segment 2: paddr=00025528 vaddr=40374000 size=0aaf0h ( 43760) load[0m
+[0;32mI (113) esp_image: segment 3: paddr=00030020 vaddr=42000020 size=34298h (213656) map[0m
+[0;32mI (151) esp_image: segment 4: paddr=000642c0 vaddr=4037eaf0 size=05ddch ( 24028) load[0m
+[0;32mI (157) esp_image: segment 5: paddr=0006a0a4 vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (163) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (164) boot: Disabling RNG early entropy source...[0m
+[0;32mI (176) cpu_start: Multicore app[0m
+[0;32mI (186) cpu_start: Pro cpu start user code[0m
+[0;32mI (186) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (186) app_init: Application information:[0m
+[0;32mI (186) app_init: Project name:     audio[0m
+[0;32mI (189) app_init: App version:      build_success-5-g9e4b83f-dirty[0m
+[0;32mI (195) app_init: Compile time:     Jul 19 2026 00:21:32[0m
+[0;32mI (200) app_init: ELF file SHA256:  a3284cbb1...[0m
+[0;32mI (205) app_init: ESP-IDF:          v5.5.1[0m
+[0;32mI (209) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (212) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (216) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (220) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (227) heap_init: At 3FCA4750 len 00044FC0 (275 KiB): RAM[0m
+[0;32mI (232) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (237) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (242) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (248) spi_flash: detected chip: boya[0m
+[0;32mI (251) spi_flash: flash io: dio[0m
+[0;33mW (254) spi_flash: Detected size(16384k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (266) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (272) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (279) main_task: Started on CPU0[0m
+[0;32mI (299) main_task: Calling app_main()[0m
+[0;32mI (299) MAX98357A: I2S audio channel initialized (44100 Hz, 16-bit, 2 channel(s))[0m
+[0;32mI (299) main_task: Returned from app_main()[0m
+[0;32mI (299) SSD1306: New i2c driver is used[0m
+[0;33mW (309) SSD1306: Will not install i2c master driver[0m
+[0;32mI (309) SSD1306: OLED configured successfully[0m
+[0;32mI (399) SDCARD: SD card mounted[0m
+Name: EB1QT
+Type: SDHC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 30528MB
+CSD: ver=2, sector_size=512, capacity=62521344 read_bl_len=9
+SSR: bus_width=1
+Found: System Volume Information
+Found: songs.db
+Found: 160.bin
+Found: 601.bin
+Found: 160.pcm
+Added: 160
+Found: 601.pcm
+Added: 601
+Total songs: 2
+PCM: /sdcard/160.pcm
+BIN: /sdcard/160.bin
+PCM: /sdcard/601.pcm
+BIN: /sdcard/601.bin
+[0;32mI (999) DOUBLE_BUFFER: Double buffer module initialized[0m
+BUTTON SELECT AND START PLAYING
+[1;31mE (2849) i2s_common: i2s_channel_enable(1189): the channel has already enabled or not initialized[0m
+[0;33mW (2859) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;32mI (2939) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (4369) SDCARD: [DEBUG] Opened /sdcard/160.pcm, file size = 10584064 bytes[0m
+SINGLE CLICK
+PLAY
+[0;33mW (16209) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=4080 frameIndex=1[0m
+[0;33mW (16219) PCM: [DEBUG] writtenBytes/s=1024 playedSamples=4560 ringFreeBytes=1024 eof=0[0m
+DOUBLE CLICK -> MENU
+[0;33mW (17219) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=48720 ringFreeBytes=10240 eof=0[0m
+[0;33mW (18219) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=92880 ringFreeBytes=6144 eof=0[0m
+[0;33mW (19229) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=137040 ringFreeBytes=3072 eof=0[0m
+MENU IDLE TIMEOUT -> BACK TO PLAYING
+[0;33mW (19369) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=143520 frameIndex=48[0m
+[0;33mW (19389) DOUBLE_BUFFER: Frame 48 not in any buffer, loading urgently[0m
+[0;33mW (20229) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=181200 ringFreeBytes=3072 eof=0[0m
+[0;33mW (20389) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=188160 frameIndex=64[0m
+[0;33mW (20439) DOUBLE_BUFFER: Frame 64 not in any buffer, loading urgently[0m
+[0;33mW (21229) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=225360 ringFreeBytes=8192 eof=0[0m
+[0;33mW (21439) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=234480 frameIndex=79[0m
+[0;33mW (21489) DOUBLE_BUFFER: Frame 79 not in any buffer, loading urgently[0m
+[0;33mW (22229) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=269520 ringFreeBytes=12288 eof=0[0m
+[0;33mW (22479) DOUBLE_BUFFER: Frame 94 not in any buffer, loading urgently[0m
+[0;33mW (22559) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=284160 frameIndex=96[0m
+[0;33mW (23229) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=313680 ringFreeBytes=9216 eof=0[0m
+[0;33mW (23529) DOUBLE_BUFFER: Frame 110 not in any buffer, loading urgently[0m
+[0;33mW (23609) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=330480 frameIndex=112[0m
+[0;33mW (24229) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=357840 ringFreeBytes=5120 eof=0[0m
+[0;33mW (24579) DOUBLE_BUFFER: Frame 126 not in any buffer, loading urgently[0m
+[0;33mW (24669) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=370560 frameIndex=126[0m
+[0;33mW (25229) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=402000 ringFreeBytes=6144 eof=0[0m
+[0;33mW (25679) DOUBLE_BUFFER: Frame 143 not in any buffer, loading urgently[0m
+[0;33mW (25759) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=425280 frameIndex=144[0m
+[0;33mW (26239) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=446160 ringFreeBytes=6144 eof=0[0m
+[0;33mW (26729) DOUBLE_BUFFER: Frame 158 not in any buffer, loading urgently[0m
+[0;33mW (26809) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=471600 frameIndex=160[0m
+[0;33mW (27239) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=490320 ringFreeBytes=11264 eof=0[0m
+[0;33mW (27779) DOUBLE_BUFFER: Frame 174 not in any buffer, loading urgently[0m
+[0;33mW (27859) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=517920 frameIndex=176[0m
+[0;33mW (28239) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=534480 ringFreeBytes=7168 eof=0[0m
+[0;33mW (28829) DOUBLE_BUFFER: Frame 189 not in any buffer, loading urgently[0m
+[0;33mW (28909) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=564240 frameIndex=191[0m
+[0;33mW (29239) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=578640 ringFreeBytes=4096 eof=0[0m
+[0;33mW (29809) DOUBLE_BUFFER: Frame 204 not in any buffer, loading urgently[0m
+[0;33mW (29959) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=610560 frameIndex=207[0m
+[0;33mW (30239) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=622800 ringFreeBytes=8192 eof=0[0m
+[0;33mW (30859) DOUBLE_BUFFER: Frame 220 not in any buffer, loading urgently[0m
+[0;33mW (31009) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=656880 frameIndex=223[0m
+[0;33mW (31239) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=666960 ringFreeBytes=9216 eof=0[0m
+[0;33mW (31909) DOUBLE_BUFFER: Frame 236 not in any buffer, loading urgently[0m
+[0;33mW (32069) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=700080 frameIndex=238[0m
+[0;33mW (32239) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=711120 ringFreeBytes=9216 eof=0[0m
+[0;33mW (32959) DOUBLE_BUFFER: Frame 251 not in any buffer, loading urgently[0m
+[0;33mW (33159) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=751680 frameIndex=255[0m
+[0;33mW (33239) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=755280 ringFreeBytes=6144 eof=0[0m
+[0;33mW (33939) DOUBLE_BUFFER: Frame 266 not in any buffer, loading urgently[0m
+[0;33mW (34249) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=799440 ringFreeBytes=6144 eof=0[0m
+[0;33mW (34259) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=800160 frameIndex=272[0m
+[0;33mW (34919) DOUBLE_BUFFER: Frame 281 not in any buffer, loading urgently[0m
+[0;33mW (35249) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=843600 ringFreeBytes=11264 eof=0[0m
+[0;33mW (35309) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=846480 frameIndex=287[0m
+[0;33mW (35919) DOUBLE_BUFFER: Frame 296 not in any buffer, loading urgently[0m
+[0;33mW (36249) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=887760 ringFreeBytes=11264 eof=0[0m
+[0;33mW (36309) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=890640 frameIndex=302[0m
+[0;33mW (36969) DOUBLE_BUFFER: Frame 311 not in any buffer, loading urgently[0m
+[0;33mW (37249) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=931920 ringFreeBytes=4096 eof=0[0m
+[0;33mW (37359) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=936960 frameIndex=318[0m
+[0;33mW (38019) DOUBLE_BUFFER: Frame 327 not in any buffer, loading urgently[0m
+[0;33mW (38249) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=976080 ringFreeBytes=4096 eof=0[0m
+[0;33mW (38459) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=985440 frameIndex=335[0m
+[0;33mW (38999) DOUBLE_BUFFER: Frame 342 not in any buffer, loading urgently[0m
+[0;33mW (39249) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1020240 ringFreeBytes=9216 eof=0[0m
+[0;33mW (39559) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1033920 frameIndex=351[0m
+[0;33mW (39979) DOUBLE_BUFFER: Frame 357 not in any buffer, loading urgently[0m
+[0;33mW (40249) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1064400 ringFreeBytes=1024 eof=0[0m
+[0;33mW (40659) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1082400 frameIndex=368[0m
+[0;33mW (41079) DOUBLE_BUFFER: Frame 373 not in any buffer, loading urgently[0m
+[0;33mW (41259) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1108560 ringFreeBytes=6144 eof=0[0m
+[0;33mW (41709) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1128720 frameIndex=383[0m
+[0;33mW (42129) DOUBLE_BUFFER: Frame 389 not in any buffer, loading urgently[0m
+[0;33mW (42259) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1152720 ringFreeBytes=6144 eof=0[0m
+[0;33mW (42759) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1175040 frameIndex=399[0m
+[0;33mW (43179) DOUBLE_BUFFER: Frame 405 not in any buffer, loading urgently[0m
+[0;33mW (43259) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1196880 ringFreeBytes=11264 eof=0[0m
+[0;33mW (43859) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1223520 frameIndex=416[0m
+[0;33mW (44259) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1241040 ringFreeBytes=7168 eof=0[0m
+[0;33mW (44279) DOUBLE_BUFFER: Frame 421 not in any buffer, loading urgently[0m
+[0;33mW (44909) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1269840 frameIndex=431[0m
+[0;33mW (45259) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1285200 ringFreeBytes=8192 eof=0[0m
+[0;33mW (45329) DOUBLE_BUFFER: Frame 437 not in any buffer, loading urgently[0m
+[0;33mW (45959) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1316160 frameIndex=447[0m
+[0;33mW (46259) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1329360 ringFreeBytes=12288 eof=0[0m
+[0;33mW (46379) DOUBLE_BUFFER: Frame 453 not in any buffer, loading urgently[0m
+[0;33mW (47059) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1364640 frameIndex=464[0m
+[0;33mW (47259) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1373520 ringFreeBytes=5120 eof=0[0m
+[0;33mW (47359) DOUBLE_BUFFER: Frame 468 not in any buffer, loading urgently[0m
+[0;33mW (48159) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1413120 frameIndex=480[0m
+[0;33mW (48269) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1417680 ringFreeBytes=9216 eof=0[0m
+[0;33mW (48459) DOUBLE_BUFFER: Frame 484 not in any buffer, loading urgently[0m
+[0;33mW (49209) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1459440 frameIndex=496[0m
+[0;33mW (49269) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1461840 ringFreeBytes=10240 eof=0[0m
+[0;33mW (49509) DOUBLE_BUFFER: Frame 500 not in any buffer, loading urgently[0m
+[0;33mW (50269) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=1500480 frameIndex=510[0m
+[0;33mW (50269) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1506000 ringFreeBytes=6144 eof=0[0m
+[0;33mW (50559) DOUBLE_BUFFER: Frame 515 not in any buffer, loading urgently[0m
+[0;33mW (51269) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1550160 ringFreeBytes=7168 eof=0[0m
+[0;33mW (51359) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1554240 frameIndex=528[0m
+[0;33mW (51539) DOUBLE_BUFFER: Frame 531 not in any buffer, loading urgently[0m
+[0;33mW (52269) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1594320 ringFreeBytes=7168 eof=0[0m
+[0;33mW (52459) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1602720 frameIndex=545[0m
+[0;33mW (52639) DOUBLE_BUFFER: Frame 546 not in any buffer, loading urgently[0m
+[0;33mW (53269) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1638480 ringFreeBytes=12288 eof=0[0m
+[0;33mW (53509) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1649040 frameIndex=560[0m
+[0;33mW (53689) DOUBLE_BUFFER: Frame 562 not in any buffer, loading urgently[0m
+[0;33mW (54269) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1682640 ringFreeBytes=4096 eof=0[0m
+[0;33mW (54559) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1695360 frameIndex=576[0m
+[0;33mW (54739) DOUBLE_BUFFER: Frame 578 not in any buffer, loading urgently[0m
+[0;33mW (55269) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1726800 ringFreeBytes=5120 eof=0[0m
+[0;33mW (55669) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=1738560 frameIndex=591[0m
+[0;33mW (55719) DOUBLE_BUFFER: Frame 593 not in any buffer, loading urgently[0m
+[0;33mW (56279) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1770960 ringFreeBytes=9216 eof=0[0m
+[0;33mW (56759) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1792320 frameIndex=609[0m
+[0;33mW (56819) DOUBLE_BUFFER: Frame 609 not in any buffer, loading urgently[0m
+[0;33mW (57279) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1815120 ringFreeBytes=6144 eof=0[0m
+[0;33mW (57809) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1838640 frameIndex=625[0m
+[0;33mW (57869) DOUBLE_BUFFER: Frame 625 not in any buffer, loading urgently[0m
+[0;33mW (58279) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1859280 ringFreeBytes=2048 eof=0[0m
+[0;33mW (58859) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1884960 frameIndex=641[0m
+[0;33mW (58919) DOUBLE_BUFFER: Frame 641 not in any buffer, loading urgently[0m
+[0;33mW (59279) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1903440 ringFreeBytes=7168 eof=0[0m
+[0;33mW (59879) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1930080 frameIndex=656[0m
+[0;33mW (59899) DOUBLE_BUFFER: Frame 656 not in any buffer, loading urgently[0m
+[0;33mW (60279) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=1947600 ringFreeBytes=11264 eof=0[0m
+[0;33mW (60939) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1976640 frameIndex=672[0m
+[0;33mW (60999) DOUBLE_BUFFER: Frame 672 not in any buffer, loading urgently[0m
+[0;33mW (61279) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1991760 ringFreeBytes=4096 eof=0[0m
+[0;33mW (61989) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2022960 frameIndex=688[0m
+[0;33mW (62049) DOUBLE_BUFFER: Frame 688 not in any buffer, loading urgently[0m
+[0;33mW (62279) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=2035920 ringFreeBytes=4096 eof=0[0m
+[0;33mW (63039) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2069280 frameIndex=703[0m
+[0;33mW (63099) DOUBLE_BUFFER: Frame 703 not in any buffer, loading urgently[0m
+[0;33mW (63289) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=2080080 ringFreeBytes=9216 eof=0[0m
+[0;33mW (64089) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2115600 frameIndex=719[0m
+[0;33mW (64149) DOUBLE_BUFFER: Frame 719 not in any buffer, loading urgently[0m
+[0;33mW (64289) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=2124240 ringFreeBytes=9216 eof=0[0m
+[0;33mW (65129) DOUBLE_BUFFER: Frame 734 not in any buffer, loading urgently[0m
+[0;33mW (65209) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2165040 frameIndex=736[0m
+[0;33mW (65289) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=2168400 ringFreeBytes=6144 eof=0[0m
+[0;33mW (66179) DOUBLE_BUFFER: Frame 750 not in any buffer, loading urgently[0m
+[0;33mW (66259) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2211360 frameIndex=752[0m
+[0;33mW (66289) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=2212560 ringFreeBytes=2048 eof=0[0m
+[0;33mW (67229) DOUBLE_BUFFER: Frame 765 not in any buffer, loading urgently[0m
+[0;33mW (67289) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=2256720 ringFreeBytes=7168 eof=0[0m
+[0;33mW (67309) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2257680 frameIndex=767[0m
+[0;33mW (68279) DOUBLE_BUFFER: Frame 781 not in any buffer, loading urgently[0m
+[0;33mW (68289) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=2300880 ringFreeBytes=11264 eof=0[0m
+[0;33mW (68359) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2304000 frameIndex=783[0m
+[0;33mW (69259) DOUBLE_BUFFER: Frame 796 not in any buffer, loading urgently[0m
+[0;33mW (69289) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=2345040 ringFreeBytes=4096 eof=0[0m
+[0;33mW (69459) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2352480 frameIndex=800[0m
+[0;33mW (70299) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=2389200 ringFreeBytes=8192 eof=0[0m
+[0;33mW (70359) DOUBLE_BUFFER: Frame 812 not in any buffer, loading urgently[0m
+[0;33mW (70509) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2398800 frameIndex=815[0m
+[0;33mW (71299) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=2433360 ringFreeBytes=9216 eof=0[0m
+[0;33mW (71409) DOUBLE_BUFFER: Frame 828 not in any buffer, loading urgently[0m
+[0;33mW (71559) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2445120 frameIndex=831[0m
+[0;33mW (72299) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=2477520 ringFreeBytes=1024 eof=0[0m
+[0;33mW (72459) DOUBLE_BUFFER: Frame 844 not in any buffer, loading urgently[0m
+[0;33mW (72659) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2493600 frameIndex=848[0m
+[0;33mW (73299) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=2521680 ringFreeBytes=6144 eof=0[0m
+[0;33mW (73559) DOUBLE_BUFFER: Frame 860 not in any buffer, loading urgently[0m
+[0;33mW (73709) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2539920 frameIndex=863[0m
+[0;33mW (74299) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=2565840 ringFreeBytes=10240 eof=0[0m
+[0;33mW (74609) DOUBLE_BUFFER: Frame 876 not in any buffer, loading urgently[0m
+[0;33mW (74759) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2586240 frameIndex=879[0m
+[0;33mW (75299) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=2610000 ringFreeBytes=11264 eof=0[0m
+[0;33mW (75659) DOUBLE_BUFFER: Frame 892 not in any buffer, loading urgently[0m
+[0;33mW (75799) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=2632080 frameIndex=895[0m
+SONG FINISHED -> AUTO NEXT
+[0;32mI (76319) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (76359) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+[0;33mW (76369) PCM: [DEBUG] writtenBytes/s=161792 playedSamples=4320 ringFreeBytes=62464 eof=0[0m
+[0;33mW (76819) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=24240 frameIndex=8[0m
+[0;33mW (77369) PCM: [DEBUG] writtenBytes/s=181248 playedSamples=48720 ringFreeBytes=2048 eof=0[0m
+[0;33mW (77889) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=71760 frameIndex=24[0m
+[0;33mW (78369) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=92880 ringFreeBytes=10240 eof=0[0m
+[0;33mW (78429) DOUBLE_BUFFER: Frame 31 not in any buffer, loading urgently[0m
+[0;33mW (78939) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=118080 frameIndex=40[0m
+[0;33mW (79359) DOUBLE_BUFFER: Frame 46 not in any buffer, loading urgently[0m
+[0;33mW (79369) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=137040 ringFreeBytes=15360 eof=0[0m
+[0;33mW (79989) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=164400 frameIndex=55[0m
+[0;33mW (80369) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=181200 ringFreeBytes=3072 eof=0[0m
+[0;33mW (80479) DOUBLE_BUFFER: Frame 62 not in any buffer, loading urgently[0m
+[0;33mW (81049) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=205440 frameIndex=69[0m
+[0;33mW (81379) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=225360 ringFreeBytes=8192 eof=0[0m
+[0;33mW (81459) DOUBLE_BUFFER: Frame 77 not in any buffer, loading urgently[0m
+[0;33mW (82139) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=259200 frameIndex=88[0m
+[0;33mW (82379) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=269520 ringFreeBytes=8192 eof=0[0m
+[0;33mW (82559) DOUBLE_BUFFER: Frame 93 not in any buffer, loading urgently[0m
+[0;33mW (83189) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=305520 frameIndex=103[0m
+[0;33mW (83379) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=313680 ringFreeBytes=9216 eof=0[0m
+[0;33mW (83609) DOUBLE_BUFFER: Frame 109 not in any buffer, loading urgently[0m
+[0;33mW (84289) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=354000 frameIndex=120[0m
+[0;33mW (84379) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=357840 ringFreeBytes=5120 eof=0[0m
+[0;33mW (84589) DOUBLE_BUFFER: Frame 124 not in any buffer, loading urgently[0m
+[0;33mW (85379) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=402000 ringFreeBytes=10240 eof=0[0m
+[0;33mW (85389) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=402480 frameIndex=136[0m
+[0;33mW (85689) DOUBLE_BUFFER: Frame 140 not in any buffer, loading urgently[0m
+[0;33mW (86379) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=446160 ringFreeBytes=10240 eof=0[0m
+[0;33mW (86449) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=443520 frameIndex=150[0m
+[0;33mW (86739) DOUBLE_BUFFER: Frame 156 not in any buffer, loading urgently[0m
+[0;33mW (87379) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=490320 ringFreeBytes=7168 eof=0[0m
+[0;33mW (87489) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=495120 frameIndex=168[0m
+[0;33mW (87789) DOUBLE_BUFFER: Frame 172 not in any buffer, loading urgently[0m
+[0;33mW (88389) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=534480 ringFreeBytes=7168 eof=0[0m
+[0;33mW (88589) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=543600 frameIndex=184[0m
+[0;33mW (88889) DOUBLE_BUFFER: Frame 188 not in any buffer, loading urgently[0m
+[0;33mW (89389) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=578640 ringFreeBytes=12288 eof=0[0m
+[0;33mW (89689) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=592080 frameIndex=201[0m
+[0;33mW (89869) DOUBLE_BUFFER: Frame 203 not in any buffer, loading urgently[0m
+[0;33mW (90389) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=622800 ringFreeBytes=8192 eof=0[0m
+[0;33mW (90739) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=638400 frameIndex=217[0m
+[0;33mW (90919) DOUBLE_BUFFER: Frame 218 not in any buffer, loading urgently[0m
+[0;33mW (91389) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=666960 ringFreeBytes=5120 eof=0[0m
+[0;33mW (91789) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=684720 frameIndex=232[0m
+[0;33mW (91969) DOUBLE_BUFFER: Frame 234 not in any buffer, loading urgently[0m
+[0;33mW (92389) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=711120 ringFreeBytes=5120 eof=0[0m
+[0;33mW (92889) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=733200 frameIndex=249[0m
+[0;33mW (92949) DOUBLE_BUFFER: Frame 249 not in any buffer, loading urgently[0m
+[0;33mW (93389) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=755280 ringFreeBytes=10240 eof=0[0m
+[0;33mW (93929) DOUBLE_BUFFER: Frame 264 not in any buffer, loading urgently[0m
+[0;33mW (94009) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=782640 frameIndex=266[0m
+[0;33mW (94389) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=799440 ringFreeBytes=6144 eof=0[0m
+[0;33mW (94979) DOUBLE_BUFFER: Frame 279 not in any buffer, loading urgently[0m
+[0;33mW (95069) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=829200 frameIndex=282[0m
+[0;33mW (95389) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=843600 ringFreeBytes=3072 eof=0[0m
+[0;33mW (95969) DOUBLE_BUFFER: Frame 294 not in any buffer, loading urgently[0m
+[0;33mW (96169) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=877920 frameIndex=298[0m
+[0;33mW (96399) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=887760 ringFreeBytes=7168 eof=0[0m
+[0;33mW (96949) DOUBLE_BUFFER: Frame 310 not in any buffer, loading urgently[0m
+[0;33mW (97219) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=924240 frameIndex=314[0m
+[0;33mW (97399) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=931920 ringFreeBytes=12288 eof=0[0m
+[0;33mW (97999) DOUBLE_BUFFER: Frame 325 not in any buffer, loading urgently[0m
+[0;33mW (98269) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=970560 frameIndex=330[0m
+[0;33mW (98399) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=976080 ringFreeBytes=8192 eof=0[0m
+[0;33mW (99049) DOUBLE_BUFFER: Frame 340 not in any buffer, loading urgently[0m
+[0;33mW (99319) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=1016880 frameIndex=345[0m
+[0;33mW (99399) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=1020240 ringFreeBytes=5120 eof=0[0m

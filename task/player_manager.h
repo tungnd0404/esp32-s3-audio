@@ -15,6 +15,17 @@
  *  MACROS / DEFINES
  * =================================================== */
 
+/* Bit riêng cho sự kiện "bài đang phát đã hết" - Pcm_Task tự phát hiện khi đọc hết file .pcm
+   (xem Pcm_StreamSong trong pcm_player.c) rồi gửi bit này tới PlayerManager_Task qua CÙNG
+   kênh task notification bitmask với nút bấm (BIT3, không đụng BIT0-2 đã dùng cho
+   1U<<BTN_EVENT_NEXT/PREV/PLAY, xem button.c) - tận dụng lại đúng cơ chế eSetBits chống mất
+   sự kiện sẵn có (vd nếu người dùng bấm Next đúng lúc bài vừa hết, cả 2 sự kiện vẫn được xử
+   lý đủ, không cái nào đè mất cái nào). KHÔNG phải BTN_EVENT_* vì đây không phải nút bấm vật
+   lý - PlayerManager_Task xử lý bit này bằng đúng logic "chuyển sang bài kế tiếp" (giống
+   Next) nhưng KHÔNG phụ thuộc mainState như Next thật (bài phát NỀN hết thì luôn phải chuyển
+   bài kế tiếp và tiếp tục phát nền, bất kể người dùng đang xem MENU hay màn hình PLAYING) */
+#define PCM_SONG_FINISHED_BIT   (1U << 3)
+
 /* ===================================================
  *  TYPE DEFINITIONS
  * =================================================== */

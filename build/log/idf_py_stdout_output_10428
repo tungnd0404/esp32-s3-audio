@@ -1,0 +1,373 @@
+Command: E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools/idf_monitor.py -p COM4 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 E:\project\Audio\build\audio.elf E:\project\Audio\build\bootloader\bootloader.elf --force-color -m 'E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe' 'E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools\idf.py' '-p' 'COM4'
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2a (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (24) boot: ESP-IDF v5.5.1 2nd stage bootloader[0m
+[0;32mI (25) boot: compile time Jul 18 2026 10:20:18[0m
+[0;32mI (25) boot: Multicore bootloader[0m
+[0;32mI (25) boot: chip revision: v0.2[0m
+[0;32mI (28) boot: efuse block revision: v1.3[0m
+[0;32mI (31) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (35) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (39) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (43) boot: Enabling RNG early entropy source...[0m
+[0;32mI (47) boot: Partition Table:[0m
+[0;32mI (50) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (63) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (69) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (76) boot: End of partition table[0m
+[0;32mI (79) esp_image: segment 0: paddr=00010020 vaddr=3c040020 size=12390h ( 74640) map[0m
+[0;32mI (100) esp_image: segment 1: paddr=000223b8 vaddr=3fc94900 size=03148h ( 12616) load[0m
+[0;32mI (102) esp_image: segment 2: paddr=00025508 vaddr=40374000 size=0ab10h ( 43792) load[0m
+[0;32mI (113) esp_image: segment 3: paddr=00030020 vaddr=42000020 size=34210h (213520) map[0m
+[0;32mI (151) esp_image: segment 4: paddr=00064238 vaddr=4037eb10 size=05dbch ( 23996) load[0m
+[0;32mI (157) esp_image: segment 5: paddr=00069ffc vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (163) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (164) boot: Disabling RNG early entropy source...[0m
+[0;32mI (176) cpu_start: Multicore app[0m
+[0;32mI (186) cpu_start: Pro cpu start user code[0m
+[0;32mI (186) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (186) app_init: Application information:[0m
+[0;32mI (186) app_init: Project name:     audio[0m
+[0;32mI (189) app_init: App version:      build_success-4-g890d7b6-dirty[0m
+[0;32mI (195) app_init: Compile time:     Jul 19 2026 00:13:26[0m
+[0;32mI (200) app_init: ELF file SHA256:  ad8f6afe3...[0m
+[0;32mI (205) app_init: ESP-IDF:          v5.5.1[0m
+[0;32mI (209) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (212) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (216) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (220) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (227) heap_init: At 3FCA4750 len 00044FC0 (275 KiB): RAM[0m
+[0;32mI (232) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (237) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (242) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (248) spi_flash: detected chip: boya[0m
+[0;32mI (251) spi_flash: flash io: dio[0m
+[0;33mW (254) spi_flash: Detected size(16384k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (266) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (272) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (279) main_task: Started on CPU0[0m
+[0;32mI (299) main_task: Calling app_main()[0m
+[0;32mI (299) MAX98357A: I2S audio channel initialized (44100 Hz, 16-bit, 2 channel(s))[0m
+[0;32mI (299) main_task: Returned from app_main()[0m
+[0;32mI (299) SSD1306: New i2c driver is used[0m
+[0;33mW (309) SSD1306: Will not install i2c master driver[0m
+[0;32mI (309) SSD1306: OLED configured successfully[0m
+[0;32mI (349) SDCARD: SD card mounted[0m
+Name: EB1QT
+Type: SDHC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 30528MB
+CSD: ver=2, sector_size=512, capacity=62521344 read_bl_len=9
+SSR: bus_width=1
+Found: System Volume Information
+Found: songs.db
+Found: 160.bin
+Found: 601.bin
+Found: 160.pcm
+Added: 160
+Found: 601.pcm
+Added: 601
+Total songs: 2
+PCM: /sdcard/160.pcm
+BIN: /sdcard/160.bin
+PCM: /sdcard/601.pcm
+BIN: /sdcard/601.bin
+[0;32mI (379) DOUBLE_BUFFER: Double buffer module initialized[0m
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2a (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (24) boot: ESP-IDF v5.5.1 2nd stage bootloader[0m
+[0;32mI (25) boot: compile time Jul 18 2026 10:20:18[0m
+[0;32mI (25) boot: Multicore bootloader[0m
+[0;32mI (25) boot: chip revision: v0.2[0m
+[0;32mI (28) boot: efuse block revision: v1.3[0m
+[0;32mI (31) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (35) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (39) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (43) boot: Enabling RNG early entropy source...[0m
+[0;32mI (47) boot: Partition Table:[0m
+[0;32mI (50) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (63) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (69) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (76) boot: End of partition table[0m
+[0;32mI (79) esp_image: segment 0: paddr=00010020 vaddr=3c040020 size=12390h ( 74640) map[0m
+[0;32mI (100) esp_image: segment 1: paddr=000223b8 vaddr=3fc94900 size=03148h ( 12616) load[0m
+[0;32mI (102) esp_image: segment 2: paddr=00025508 vaddr=40374000 size=0ab10h ( 43792) load[0m
+[0;32mI (113) esp_image: segment 3: paddr=00030020 vaddr=42000020 size=34210h (213520) map[0m
+[0;32mI (151) esp_image: segment 4: paddr=00064238 vaddr=4037eb10 size=05dbch ( 23996) load[0m
+[0;32mI (157) esp_image: segment 5: paddr=00069ffc vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (163) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (164) boot: Disabling RNG early entropy source...[0m
+[0;32mI (176) cpu_start: Multicore app[0m
+[0;32mI (186) cpu_start: Pro cpu start user code[0m
+[0;32mI (186) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (186) app_init: Application information:[0m
+[0;32mI (186) app_init: Project name:     audio[0m
+[0;32mI (189) app_init: App version:      build_success-4-g890d7b6-dirty[0m
+[0;32mI (195) app_init: Compile time:     Jul 19 2026 00:13:26[0m
+[0;32mI (200) app_init: ELF file SHA256:  ad8f6afe3...[0m
+[0;32mI (205) app_init: ESP-IDF:          v5.5.1[0m
+[0;32mI (209) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (212) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (216) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (220) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (227) heap_init: At 3FCA4750 len 00044FC0 (275 KiB): RAM[0m
+[0;32mI (232) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (237) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (242) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (248) spi_flash: detected chip: boya[0m
+[0;32mI (251) spi_flash: flash io: dio[0m
+[0;33mW (254) spi_flash: Detected size(16384k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (266) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (272) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (279) main_task: Started on CPU0[0m
+[0;32mI (299) main_task: Calling app_main()[0m
+[0;32mI (299) MAX98357A: I2S audio channel initialized (44100 Hz, 16-bit, 2 channel(s))[0m
+[0;32mI (299) main_task: Returned from app_main()[0m
+[0;32mI (299) SSD1306: New i2c driver is used[0m
+[0;33mW (309) SSD1306: Will not install i2c master driver[0m
+[0;32mI (309) SSD1306: OLED configured successfully[0m
+[0;32mI (349) SDCARD: SD card mounted[0m
+Name: EB1QT
+Type: SDHC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 30528MB
+CSD: ver=2, sector_size=512, capacity=62521344 read_bl_len=9
+SSR: bus_width=1
+Found: System Volume Information
+Found: songs.db
+Found: 160.bin
+Found: 601.bin
+Found: 160.pcm
+Added: 160
+Found: 601.pcm
+Added: 601
+Total songs: 2
+PCM: /sdcard/160.pcm
+BIN: /sdcard/160.bin
+PCM: /sdcard/601.pcm
+BIN: /sdcard/601.bin
+[0;32mI (379) DOUBLE_BUFFER: Double buffer module initialized[0m
+BUTTON DOWN
+BUTTON SELECT AND START PLAYING
+[0;32mI (4419) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (4429) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (4469) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+[0;33mW (4469) PCM: [DEBUG] writtenBytes/s=1024 playedSamples=2400 ringFreeBytes=62464 eof=0[0m
+SINGLE CLICK
+PAUSE
+SINGLE CLICK
+PLAY
+[0;33mW (8099) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=6960 frameIndex=2[0m
+[0;33mW (8109) PCM: [DEBUG] writtenBytes/s=22528 playedSamples=7440 ringFreeBytes=3072 eof=0[0m
+DOUBLE CLICK -> MENU
+[0;33mW (9109) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=51600 ringFreeBytes=4096 eof=0[0m
+[0;33mW (10109) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=95760 ringFreeBytes=12288 eof=0[0m
+[0;33mW (11119) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=139920 ringFreeBytes=5120 eof=0[0m
+MENU IDLE TIMEOUT -> BACK TO PLAYING
+[0;33mW (11199) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=143760 frameIndex=48[0m
+[0;33mW (11269) DOUBLE_BUFFER: Frame 48 not in any buffer, loading urgently[0m
+[0;33mW (12119) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=184080 ringFreeBytes=1024 eof=0[0m
+[0;33mW (12219) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=188640 frameIndex=64[0m
+[0;33mW (12279) DOUBLE_BUFFER: Frame 64 not in any buffer, loading urgently[0m
+[0;33mW (13119) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=228240 ringFreeBytes=10240 eof=0[0m
+[0;33mW (13309) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=236880 frameIndex=80[0m
+[0;33mW (13369) DOUBLE_BUFFER: Frame 80 not in any buffer, loading urgently[0m
+[0;33mW (14119) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=272400 ringFreeBytes=6144 eof=0[0m
+[0;33mW (14319) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=281280 frameIndex=95[0m
+[0;33mW (14379) DOUBLE_BUFFER: Frame 95 not in any buffer, loading urgently[0m
+[0;33mW (15119) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=316560 ringFreeBytes=11264 eof=0[0m
+[0;33mW (15339) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=322800 frameIndex=109[0m
+[0;33mW (15389) DOUBLE_BUFFER: Frame 111 not in any buffer, loading urgently[0m
+[0;33mW (16119) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=360720 ringFreeBytes=7168 eof=0[0m
+[0;33mW (16379) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=372240 frameIndex=126[0m
+[0;33mW (16439) DOUBLE_BUFFER: Frame 126 not in any buffer, loading urgently[0m
+[0;33mW (17119) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=404880 ringFreeBytes=8192 eof=0[0m
+BUTTON NEXT
+BUTTON NEXT
+[0;32mI (17419) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (17459) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+[0;33mW (17519) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=5760 frameIndex=1[0m
+[0;33mW (18129) PCM: [DEBUG] writtenBytes/s=167936 playedSamples=32640 ringFreeBytes=3072 eof=0[0m
+[0;33mW (18579) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=52800 frameIndex=17[0m
+[0;33mW (19129) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=77040 ringFreeBytes=8192 eof=0[0m
+[0;33mW (19499) DOUBLE_BUFFER: Frame 30 not in any buffer, loading urgently[0m
+[0;33mW (19579) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=96960 frameIndex=32[0m
+[0;33mW (20129) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=121200 ringFreeBytes=9216 eof=0[0m
+[0;33mW (20519) DOUBLE_BUFFER: Frame 46 not in any buffer, loading urgently[0m
+[0;33mW (20599) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=141840 frameIndex=48[0m
+[0;33mW (21129) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=165360 ringFreeBytes=1024 eof=0[0m
+[0;33mW (21539) DOUBLE_BUFFER: Frame 61 not in any buffer, loading urgently[0m
+[0;33mW (21619) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=186960 frameIndex=63[0m
+[0;33mW (22139) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=209520 ringFreeBytes=6144 eof=0[0m
+[0;33mW (22529) DOUBLE_BUFFER: Frame 76 not in any buffer, loading urgently[0m
+[0;33mW (22729) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=235920 frameIndex=80[0m
+[0;33mW (23139) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=253680 ringFreeBytes=6144 eof=0[0m
+[0;33mW (23469) DOUBLE_BUFFER: Frame 91 not in any buffer, loading urgently[0m
+[0;33mW (23809) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=283440 frameIndex=96[0m
+[0;33mW (24139) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=297840 ringFreeBytes=7168 eof=0[0m
+[0;33mW (24589) DOUBLE_BUFFER: Frame 107 not in any buffer, loading urgently[0m
+[0;33mW (24809) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=327600 frameIndex=111[0m
+[0;33mW (25139) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=342000 ringFreeBytes=3072 eof=0[0m
+BUTTON NEXT
+[0;32mI (25189) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (25229) SDCARD: [DEBUG] Opened /sdcard/160.pcm, file size = 10584064 bytes[0m
+[0;33mW (25889) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=26400 frameIndex=8[0m
+[0;33mW (26149) PCM: [DEBUG] writtenBytes/s=168960 playedSamples=43680 ringFreeBytes=6144 eof=0[0m
+[0;33mW (26929) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=78240 frameIndex=26[0m
+[0;33mW (27149) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=87840 ringFreeBytes=3072 eof=0[0m
+[0;33mW (27249) DOUBLE_BUFFER: Frame 30 not in any buffer, loading urgently[0m
+[0;33mW (28019) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=126480 frameIndex=43[0m
+[0;33mW (28149) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=132000 ringFreeBytes=11264 eof=0[0m
+[0;33mW (28279) DOUBLE_BUFFER: Frame 45 not in any buffer, loading urgently[0m
+[0;33mW (29029) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=170880 frameIndex=58[0m
+[0;33mW (29149) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=176160 ringFreeBytes=12288 eof=0[0m
+[0;33mW (29329) DOUBLE_BUFFER: Frame 61 not in any buffer, loading urgently[0m
+[0;33mW (30029) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=215040 frameIndex=73[0m
+BUTTON PREV
+[0;33mW (30149) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=220320 ringFreeBytes=12288 eof=0[0m
+[0;32mI (30299) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (30339) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+[0;33mW (31079) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=41040 frameIndex=13[0m
+[0;33mW (31149) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=44160 ringFreeBytes=5120 eof=0[0m
+[0;33mW (32109) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=86400 frameIndex=29[0m
+[0;33mW (32159) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=88320 ringFreeBytes=9216 eof=0[0m
+[0;33mW (32239) DOUBLE_BUFFER: Frame 31 not in any buffer, loading urgently[0m
+[0;33mW (33159) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=132480 ringFreeBytes=6144 eof=0[0m
+[0;33mW (33199) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=128880 frameIndex=43[0m
+[0;33mW (33249) DOUBLE_BUFFER: Frame 46 not in any buffer, loading urgently[0m
+SINGLE CLICK
+PAUSE
+SINGLE CLICK
+PLAY
+[0;33mW (39879) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=142080 frameIndex=48[0m
+[0;33mW (39889) PCM: [DEBUG] writtenBytes/s=38912 playedSamples=142560 ringFreeBytes=4096 eof=0[0m
+DOUBLE CLICK -> MENU
+BUTTON SELECT AND START PLAYING
+[0;32mI (40279) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (40329) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+[0;33mW (40899) PCM: [DEBUG] writtenBytes/s=167936 playedSamples=28560 ringFreeBytes=11264 eof=0[0m
+[0;33mW (40909) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=23520 frameIndex=8[0m
+[0;33mW (41899) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=72720 ringFreeBytes=7168 eof=0[0m
+[0;33mW (41989) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=77040 frameIndex=26[0m
+[0;33mW (42309) DOUBLE_BUFFER: Frame 30 not in any buffer, loading urgently[0m
+[0;33mW (42899) PCM: [DEBUG] writtenBytes/s=177152 playedSamples=116880 ringFreeBytes=8192 eof=0[0m
+[0;33mW (43009) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=121920 frameIndex=41[0m
+[0;33mW (43389) DOUBLE_BUFFER: Frame 46 not in any buffer, loading urgently[0m
+[0;33mW (43899) PCM: [DEBUG] writtenBytes/s=176128 playedSamples=161040 ringFreeBytes=12288 eof=0[0m
+[0;33mW (44079) SYNC_FRAME: [DEBUG] srmRet=0 playedSamples=169200 frameIndex=57[0m
+SINGLE CLICK
+PAUSE
+[0;33mW (44379) DOUBLE_BUFFER: Frame 61 not in any buffer, loading urgently[0m
+DOUBLE CLICK -> MENU
+BUTTON SELECT AND START PLAYING
+[0;32mI (44669) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (44709) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+SINGLE CLICK
+PAUSE
+[1;31mE (44909) i2s_common: i2s_channel_write(1317): The channel is not enabled[0m
+[1;31mE (44909) PCM: I2S write failed: ESP_ERR_INVALID_STATE[0m
+[1;31mE (44909) PCM: I2S hardware failure detected, Pcm_Task halted[0m
+SINGLE CLICK
+PLAY
+[0;33mW (57789) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (58789) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (59809) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (60829) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (61849) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (62869) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (63889) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (64909) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (65929) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+SINGLE CLICK
+PAUSE
+SINGLE CLICK
+PLAY
+[0;33mW (68279) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (69279) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+SINGLE CLICK
+PAUSE
+DOUBLE CLICK -> MENU
+BUTTON SELECT AND START PLAYING
+[0;32mI (70409) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+BUTTON NEXT
+BUTTON NEXT
+[0;33mW (71869) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+[0;32mI (71989) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+BUTTON NEXT
+BUTTON NEXT
+BUTTON NEXT
+[0;33mW (72909) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+[0;32mI (72919) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (72959) SDCARD: [DEBUG] Opened /sdcard/160.pcm, file size = 10584064 bytes[0m
+[0;33mW (73019) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (74049) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (75069) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (76089) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+BUTTON NEXT
+[0;32mI (76869) DOUBLE_BUFFER: Opened /sdcard/601.bin, total frames = 900[0m
+[0;33mW (76909) SDCARD: [DEBUG] Opened /sdcard/601.pcm, file size = 10584064 bytes[0m
+[0;33mW (77109) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (78129) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (79149) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (80169) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (81189) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (82209) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (83229) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (84249) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (85269) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (86289) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (87309) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (88329) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (89349) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (90369) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (91389) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (92409) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (93429) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (94449) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (95469) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (96489) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (97509) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (98529) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (99549) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (100569) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (101589) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (102609) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (103629) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (104649) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (105669) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (106689) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (107709) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (108729) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (109749) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (110769) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (111789) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (112809) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (113829) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (114849) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (115869) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (116889) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (117909) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (118929) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (119949) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (120969) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (121989) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (123009) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (124029) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (125049) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m
+[0;33mW (126069) SYNC_FRAME: [DEBUG] srmRet=1 playedSamples=0 frameIndex=0[0m

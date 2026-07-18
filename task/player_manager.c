@@ -354,6 +354,30 @@ void PlayerManager_Task(void *arg)
                         }
                     }
             }
+
+            /* Bài đang phát NỀN đã hết (Pcm_Task tự phát hiện, xem Pcm_StreamSong trong
+               pcm_player.c) -> tự động chuyển sang bài kế tiếp và tiếp tục phát, dùng lại
+               đúng buttonState/thông báo BTN_STATE_NEXT cho Oled_Task/Sdcard_Task/Pcm_Task
+               giống hệt nút Next thật - NHƯNG KHÔNG phụ thuộc mainState như Next thật (Next
+               thật lúc ở MENU chỉ di chuyển con trỏ, không đổi bài): dù người dùng đang xem
+               MENU hay màn hình PLAYING, bài phát nền hết vẫn phải tự chuyển bài kế tiếp và
+               tiếp tục phát nền. totalSong != 0 chỉ để phòng thủ (không thể thực sự bằng 0 ở
+               đây vì phải có bài đang phát mới sinh ra được sự kiện này) */
+            if (((lu32button_evt & PCM_SONG_FINISHED_BIT) != 0U) && (gsPlayerContext.totalSong != 0U))
+            {
+                #if defined DEBUG_PRINTF_ENABLED
+                printf("SONG FINISHED -> AUTO NEXT\n");
+                #endif
+                gsPlayerContext.buttonState = BTN_STATE_NEXT;
+                gsPlayerContext.cursor = PlayerManager_Update_Cursor(gsPlayerContext.cursor, gsPlayerContext.totalSong, CURSOR_DIR_DOWN);
+                gsPlayerContext.currentSong = gsPlayerContext.cursor;
+                /* Vẫn đang phát nhạc - chỉ đổi bài, không phải Pause */
+                gsPlayerContext.playbackState = PLAYBACK_STATE_PLAY;
+                xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                xTaskNotify(xSdTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                xTaskNotify(xPcmTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                gsPlayerContext.buttonState = BTN_STATE_IDLE;
+            }
         }
         /* Không nhận được notification nào trong lu32WaitTicks -> chỉ xảy ra khi đang chờ auto-return */
         else if (lbAutoReturnPending == true)

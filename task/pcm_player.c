@@ -177,17 +177,25 @@ static bool Pcm_StreamSong(uint32_t *pu32NotifyValue, bool *pbHwFailure)
             if (gbPcmStreamEof == true)
             {
                 /* Sdcard_Task đã đọc hết file .pcm VÀ ring buffer cũng đã rút cạn -> hết bài
-                   thật sự, dừng chờ sự kiện kế tiếp (đổi bài / bấm Play lại từ đầu...). KHÔNG
-                   tự động chuyển bài kế tiếp - khác VS1053 cũ, không cần vs1053_stop_song()
-                   xả FIFO gì cả vì I2S không có FIFO decode nội bộ cần xả.
-                   Tắt clock I2S ngay (giống Max98357a_Pause()) - nếu để nguyên kênh bật mà
-                   không còn Max98357a_Write() nào tiếp theo, DMA có thể lặp lại khối cuối cùng
-                   đã phát thay vì im lặng sạch (cùng lý do giải thích ở Max98357a_Pause(),
-                   max98357a.h). BTN_STATE_PLAY (Resume) sau đó sẽ tự Max98357a_Resume() lại. */
+                   thật sự. Tắt clock I2S ngay (giống Max98357a_Pause()) - nếu để nguyên kênh
+                   bật mà không còn Max98357a_Write() nào tiếp theo, DMA có thể lặp lại khối
+                   cuối cùng đã phát thay vì im lặng sạch (cùng lý do giải thích ở
+                   Max98357a_Pause(), max98357a.h). */
                 if (Max98357a_Pause() != ESP_OK)
                 {
                     ESP_LOGW(TAG, "Max98357a_Pause (EOF) failed");
                 }
+
+                /* Tự động chuyển bài kế tiếp - báo PlayerManager_Task qua PCM_SONG_FINISHED_BIT
+                   (player_manager.h), KHÔNG tự ý sửa gsPlayerContext.cursor/currentSong ở đây
+                   (vi phạm kiến trúc Owner Task - chỉ PlayerManager_Task được phép ghi state
+                   này, xem srm.h/player_manager.c). PlayerManager_Task nhận bit này sẽ tự xử
+                   lý y hệt logic Next (đổi cursor/currentSong, thông báo lại Oled_Task/
+                   Sdcard_Task/CHÍNH Pcm_Task này với BTN_STATE_NEXT) - Pcm_Task sẽ nhận lại
+                   được BTN_STATE_NEXT ở vòng lặp ngoài ngay sau khi hàm này return, tiếp tục
+                   phát bài mới bình thường. eSetBits (không phải eSetValueWithOverwrite) để
+                   không đè mất 1 sự kiện nút bấm thật nếu người dùng bấm đúng lúc này. */
+                xTaskNotify(xPlayerManagerTaskHandle, PCM_SONG_FINISHED_BIT, eSetBits);
                 break;
             }
 
@@ -329,11 +337,38 @@ void Pcm_Task(void *pvParameters)
                    đây là task DUY NHẤT được phép gọi RingBuffer_Reset() */
                 RingBuffer_Reset(xPcmRingBuffer);
 
+                /* Tự xoá cờ EOF của bài CŨ ngay tại đây (không chờ Sdcard_Task) - PHÒNG RACE
+                   CONDITION: Sdcard_Task cũng nhận CÙNG notification này song song và sẽ tự
+                   gbPcmStreamEof = false khi mở file bài mới (xem Sdcard_LoadSong), nhưng 2
+                   task chạy độc lập, không đảm bảo thứ tự - nếu Pcm_Task tới vòng lặp
+                   Pcm_StreamSong() bên dưới TRƯỚC khi Sdcard_Task kịp reset cờ, sẽ đọc phải
+                   gbPcmStreamEof=true SÓT LẠI của bài CŨ (vừa hết) ngay khi ring buffer bài
+                   MỚI còn rỗng -> tưởng nhầm bài MỚI cũng vừa hết ngay lập tức, kích hoạt
+                   PCM_SONG_FINISHED_BIT liên tiếp (đã quan sát được: tự next 2 lần liên tục
+                   160->601->160 chỉ trong ~20ms). Đặt false ở đây (bên đọc, làm cùng lúc với
+                   RingBuffer_Reset) đảm bảo không còn cửa sổ hở nào */
+                gbPcmStreamEof = false;
+
                 /* Bài mới -> mốc đồng bộ animation bắt đầu lại từ 0 (xem
                    SyncFrame_GetFrameIndex(), driver/buffer/sync_frame.c: frameIndex =
                    played_samples / samples_per_frame - reset về 0 ở đây là đủ, không cần gọi
                    gì thêm ở phía sync_frame.c/oled.c) */
                 Max98357a_ResetPlayedSamples(0U);
+
+                /* Bật lại clock I2S nếu đang tắt - BẮT BUỘC vì bài TRƯỚC có thể vừa kết thúc
+                   tự nhiên (EOF) và Max98357a_Pause() đã tắt kênh (xem nhánh gbPcmStreamEof
+                   trong Pcm_StreamSong() bên dưới); nếu không bật lại ở đây,
+                   Max98357a_Write() cho bài MỚI sẽ luôn lỗi ESP_ERR_INVALID_STATE ngay từ
+                   chunk đầu tiên (đã quan sát được trên board thật - "I2S write failed:
+                   ESP_ERR_INVALID_STATE" -> Pcm_Task bị coi là lỗi phần cứng và halt oan).
+                   CỐ Ý bỏ qua giá trị trả về (KHÔNG log cảnh báo như các nơi khác gọi
+                   Max98357a_Resume()): gọi i2s_channel_enable() trên 1 kênh ĐÃ bật sẵn (case
+                   Next/Prev bình thường, không đi qua EOF trước đó) LUÔN trả về
+                   ESP_ERR_INVALID_STATE theo chính driver ESP-IDF ("the channel has already
+                   enabled") - đây là kết quả HOÀN TOÀN BÌNH THƯỜNG cho phần lớn lần gọi, log
+                   cảnh báo ở đây sẽ gây nhiễu log giả mỗi lần Next/Prev thay vì chỉ báo lỗi
+                   thật sự */
+                (void)Max98357a_Resume();
 
                 lbHasPendingNotify = Pcm_StreamSong(&lu32button_evt, &lbHwFailure);
                 break;
