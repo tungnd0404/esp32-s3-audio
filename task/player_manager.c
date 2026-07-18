@@ -9,12 +9,8 @@
 #include "freertos/event_groups.h"
 #include "oled.h"
 #include "sdcard.h"
-#include "mp3.h"
+#include "pcm_player.h"
 #include "esp_log.h"
-
-/* [DEBUG TẠM] tag dùng riêng cho log debug bitmask nút bấm bên dưới - xoá cùng lúc với khối
-   debug trong PlayerManager_Task() sau khi xác định xong nguyên nhân */
-static const char *DBG_TAG = "PLAYER_MGR";
 
 /* ===================================================
  *  MACROS / DEFINES
@@ -111,7 +107,7 @@ void PlayerManager_Init(void)
  *   dừng animation), kể cả những thay đổi không đổi bài (di chuyển cursor, peek MENU).
  * - Sdcard_Task: chỉ báo khi THỰC SỰ đổi bài (Next/Prev lúc PLAYING, chọn bài mới từ MENU)
  *   để nạp lại frame animation cho bài mới vào double buffer.
- * - Mp3_Task: báo khi đổi bài (như Sdcard_Task) VÀ khi Play/Pause đổi trạng thái (để dừng
+ * - Pcm_Task: báo khi đổi bài (như Sdcard_Task) VÀ khi Play/Pause đổi trạng thái (để dừng
  *   hoặc tiếp tục stream audio) - không cần báo khi chỉ di chuyển cursor hay peek MENU vì
  *   nhạc vẫn phát nền không đổi gì trong 2 trường hợp đó.
  * Xử lý:
@@ -127,7 +123,7 @@ void PlayerManager_Task(void *arg)
     /* Khởi tạo state system TRƯỚC KHI vào vòng lặp chính - gsPlayerContext.mainState/
        buttonState chỉ được chính task này đọc/ghi (không task nào khác đọc trực tiếp từ
        struct, chỉ nhận qua giá trị notification PlayerManager_Task tự gửi), playbackState
-       chỉ được Oled_Task/Mp3_Task đọc bên trong Oled_PlayAnimation()/Mp3_StreamSong() - cả 2
+       chỉ được Oled_Task/Pcm_Task đọc bên trong Oled_PlayAnimation()/Pcm_StreamSong() - cả 2
        hàm đó chỉ chạy sau khi nhận notification từ chính task này, tức chắc chắn sau dòng
        này - nên gọi ở đây an toàn, không cần gọi từ app_main() nữa */
     PlayerManager_Init();
@@ -204,7 +200,7 @@ void PlayerManager_Task(void *arg)
                         /* Báo sd_task: đổi bài -> nạp lại frame animation cho bài mới vào double buffer */
                         xTaskNotify(xSdTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Báo mp3_task: đổi bài -> dừng stream bài cũ, phát bài mới */
-                        xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        xTaskNotify(xPcmTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                         gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
@@ -244,7 +240,7 @@ void PlayerManager_Task(void *arg)
                         /* Báo sd_task: đổi bài -> nạp lại frame animation cho bài mới vào double buffer */
                         xTaskNotify(xSdTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Báo mp3_task: đổi bài -> dừng stream bài cũ, phát bài mới */
-                        xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        xTaskNotify(xPcmTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                         gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
@@ -288,7 +284,7 @@ void PlayerManager_Task(void *arg)
                         /* Báo sd_task: có bài mới -> nạp frame animation của bài này vào double buffer */
                         xTaskNotify(xSdTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Báo mp3_task: có bài mới -> mở file mp3 và bắt đầu stream */
-                        xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                        xTaskNotify(xPcmTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                         /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                         gsPlayerContext.buttonState = BTN_STATE_IDLE;
                     }
@@ -335,7 +331,7 @@ void PlayerManager_Task(void *arg)
                                 /* Báo oled_task dừng animation lại theo, không load lại bài */
                                 xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                                 /* Báo mp3_task tạm dừng stream (không đổi bài, không cần báo sd_task) */
-                                xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                                xTaskNotify(xPcmTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                             }
                             else
                             {
@@ -349,7 +345,7 @@ void PlayerManager_Task(void *arg)
                                 /* Báo oled_task tiếp tục animation, không load lại bài */
                                 xTaskNotify(xOledTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                                 /* Báo mp3_task tiếp tục stream (không đổi bài, không cần báo sd_task) */
-                                xTaskNotify(xMp3TaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
+                                xTaskNotify(xPcmTaskHandle, gsPlayerContext.buttonState, eSetValueWithOverwrite);
                             }
                             /* Đã xử lý xong hành động -> đưa buttonState về IDLE */
                             gsPlayerContext.buttonState = BTN_STATE_IDLE;

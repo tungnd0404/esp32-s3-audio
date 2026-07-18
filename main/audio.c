@@ -12,10 +12,8 @@
 #include "menu.h"
 #include "player_manager.h"
 #include "srm.h"
-#include "mp3.h"
-#include "spi.h"
+#include "pcm_player.h"
 #include "i2c.h"
-#include "gpio.h"
 #include "sdmmc.h"
 
 /* ===================================================
@@ -23,39 +21,40 @@
  * =================================================== */
 
 /* Stack size (word... thực ra byte, xTaskCreatePinnedToCore nhận usStackDepth theo byte trên
-   ESP-IDF) dùng chung cho cả 4 task - đủ dư cho nhu cầu hiện tại của từng task (FATFS/SPI/I2C
+   ESP-IDF) dùng chung cho cả 4 task - đủ dư cho nhu cầu hiện tại của từng task (I2S/I2C
    transaction structs cỡ vài trăm byte, không có buffer lớn nào nằm trên stack - các buffer
-   1024/4096 byte của double buffer/ring buffer đều là static/global, xem double_buffer.c/
+   1024/4096/65536 byte của double buffer/ring buffer đều là static/global, xem double_buffer.c/
    ring_buffer.c). Nếu sau này thêm việc gì tốn stack hơn, dùng uxTaskGetStackHighWaterMark()
    để đo thực tế thay vì đoán */
 #define AUDIO_TASK_STACK_SIZE   4096U
 
-/* Core dành RIÊNG cho Mp3_Task - task nhạy cảm độ trễ nhất trong hệ thống (chậm 1 nhịp feed
-   VS1053 là nghe giật/rè ngay). Không task nào khác được tạo trên core này, kể cả
-   Sdcard_Task/PlayerManager_Task (dù priority thấp hơn đã đủ để Mp3_Task luôn được ưu tiên
-   khi ready trên cùng core, nhưng dồn hẳn 1 core riêng loại bỏ hoàn toàn rủi ro Sdcard_Task
-   giữ CPU hơi lâu trong 1 lời gọi FATFS/SDMMC dài mà không có điểm preempt, hoặc jitter do
-   tick-scheduling khi chung core) */
-#define MP3_TASK_CORE            0
+/* Core dành RIÊNG cho Pcm_Task - task nhạy cảm độ trễ nhất trong hệ thống (chậm 1 nhịp ghi I2S
+   là nghe giật/rè ngay). Không task nào khác được tạo trên core này, kể cả Sdcard_Task/
+   PlayerManager_Task (dù priority thấp hơn đã đủ để Pcm_Task luôn được ưu tiên khi ready trên
+   cùng core, nhưng dồn hẳn 1 core riêng loại bỏ hoàn toàn rủi ro Sdcard_Task giữ CPU hơi lâu
+   trong 1 lời gọi FATFS/SDMMC dài mà không có điểm preempt, hoặc jitter do tick-scheduling
+   khi chung core) */
+#define PCM_TASK_CORE            0
 
 /* Core chạy Sdcard_Task/PlayerManager_Task/Oled_Task - dồn chung vì đều không nhạy cảm độ
-   trễ bằng Mp3_Task (Sdcard_Task đã được tách khỏi timing audio nhờ xMp3RingBuffer làm lớp
+   trễ bằng Pcm_Task (Sdcard_Task đã được tách khỏi timing audio nhờ xPcmRingBuffer làm lớp
    đệm, PlayerManager_Task chỉ xử lý sự kiện nút bấm, Oled_Task thuần cosmetic). Priority vẫn
    giữ Sdcard_Task/PlayerManager_Task (5) cao hơn Oled_Task (4) trên core này để animation OLED
-   không làm đói CPU của Sdcard_Task, tránh gián tiếp làm cạn xMp3RingBuffer */
+   không làm đói CPU của Sdcard_Task, tránh gián tiếp làm cạn xPcmRingBuffer */
 #define OTHER_TASK_CORE          1
 
 /* Priority tương đối giữa 4 task - CAO hơn = ưu tiên CPU hơn khi có tranh chấp (tất cả vẫn
    thấp hơn nhiều so với priority các task hệ thống ESP-IDF, vd WiFi task ~18-23, nên không
    ảnh hưởng tới phần lõi hệ thống dù project hiện chưa dùng WiFi):
-   - Mp3_Task CAO NHẤT: nhạy cảm với độ trễ nhất trong 4 task - chậm 1 nhịp là nghe thấy giật/
+   - Pcm_Task CAO NHẤT: nhạy cảm với độ trễ nhất trong 4 task - chậm 1 nhịp là nghe thấy giật/
      rè ngay lập tức, khác với animation/UI (chậm 1 frame gần như không ai nhận ra)
-   - Sdcard_Task/PlayerManager_Task ngang Mp3_Task cũ (mức "mặc định" trước đây) - Sdcard_Task
-     cần chạy đều để không làm cạn xMp3RingBuffer, PlayerManager_Task cần phản hồi nút bấm
-     nhanh, nhưng công việc mỗi lần đều ngắn nên không cần cao bằng Mp3_Task
+   - Sdcard_Task/PlayerManager_Task ngang Pcm_Task - Sdcard_Task cần chạy đều để không làm cạn
+     xPcmRingBuffer (đặc biệt quan trọng hơn cả trước đây vì PCM cần thông lượng đọc thẻ SD
+     gấp ~10 lần MP3 cũ), PlayerManager_Task cần phản hồi nút bấm nhanh, nhưng công việc mỗi
+     lần đều ngắn nên không cần cao bằng Pcm_Task
    - Oled_Task THẤP NHẤT: chấp nhận được nếu bị trễ 1 chút do phải nhường CPU cho các task còn
      lại - animation lệch vài chục ms không ai để ý bằng audio giật */
-#define AUDIO_TASK_PRIORITY_MP3      6U
+#define AUDIO_TASK_PRIORITY_PCM      6U
 #define AUDIO_TASK_PRIORITY_SDCARD   5U
 #define AUDIO_TASK_PRIORITY_PLAYER   5U
 #define AUDIO_TASK_PRIORITY_OLED     4U
@@ -73,13 +72,17 @@ static const char *TAG = "AUDIO";
 /**
  * @brief app_main
  * Điểm vào chương trình (entry point ESP-IDF): khởi tạo tuần tự từng module (thứ tự PHẢI
- * đúng như dưới đây - xem comment tại từng bước), tạo đủ 4 task chính (Sdcard_Task/Mp3_Task/
+ * đúng như dưới đây - xem comment tại từng bước), tạo đủ 4 task chính (Sdcard_Task/Pcm_Task/
  * PlayerManager_Task/Oled_Task, ĐÚNG THỨ TỰ - xem comment tại lời gọi xTaskCreatePinnedToCore
  * cho Oled_Task) - mount/quét thẻ SD và khởi tạo màn hình SSD1306 nay do chính Sdcard_Task/
- * Oled_Task tự làm lúc khởi động, không còn ở đây (xem Sdcard_Task/oled.c). Ngắt nút bấm
- * (Button_Init()) không còn bật ở app_main() nữa - Oled_Task (task cuối cùng được tạo) tự
- * gọi ngay sau khi vẽ xong menu lần đầu, xem Oled_Task trong oled.c. Bản thân app_main chạy
- * trên 1 task hệ thống riêng của ESP-IDF (không phải 1 trong 4 task kể trên).
+ * Oled_Task tự làm lúc khởi động, không còn ở đây (xem Sdcard_Task/oled.c). Kênh I2S (MAX98357A)
+ * cũng do chính Pcm_Task tự khởi tạo lúc bắt đầu chạy (xem Max98357a_Init() trong
+ * driver/max98357a/max98357a.c, gọi từ Pcm_Task) - KHÔNG cần Spi_Init()/Gpio_Init() riêng ở
+ * đây nữa như thời VS1053 (I2S không phải bus dùng chung cho nhiều thiết bị như I2C, chỉ
+ * Pcm_Task dùng nên tự sở hữu trọn vòng đời của chính nó). Ngắt nút bấm (Button_Init()) không
+ * còn bật ở app_main() nữa - Oled_Task (task cuối cùng được tạo) tự gọi ngay sau khi vẽ xong
+ * menu lần đầu, xem Oled_Task trong oled.c. Bản thân app_main chạy trên 1 task hệ thống riêng
+ * của ESP-IDF (không phải 1 trong 4 task kể trên).
  * @param
  * @return
  */
@@ -89,40 +92,18 @@ void app_main(void)
       registry lúc còn đơn luồng, xem Srm_Init() trong srm.c) */
    Srm_Init();
 
-   /* PlayerManager_Init()/Sdcard_Init()/Mp3_Init() không còn gọi ở đây nữa - mỗi task nay tự
-      gọi hàm init của chính mình lúc khởi động (đầu PlayerManager_Task/Sdcard_Task/Mp3_Task),
-      xem player_manager.c/sdcard.c/mp3.c để biết lý do từng hàm an toàn khi gọi theo kiểu
-      này (không cần đồng bộ hoá gì thêm với các task khác) */
-
-   /* gpio init - cấu hình mọi chân GPIO thuần (không qua bus SPI/I2C) mà hệ thống cần, PHẢI
-      gọi trước khi tạo Mp3_Task (vs1053_init() bên trong không tự cấu hình GPIO nữa, xem
-      gpio.h). Lỗi ở đây không chặn app_main - vs1053_init() vẫn chạy tiếp nhưng sẽ tự thất
-      bại ở bước reset/test_comm nếu chân chưa được cấu hình đúng, Mp3_Task tự halt như các
-      lỗi phần cứng khác (xem Mp3_Task trong mp3.c) */
-   if (Gpio_Init() != ESP_OK)
-   {
-       ESP_LOGE(TAG, "Gpio_Init failed - VS1053 GPIO pins not configured");
-   }
-
-   /* spi init - khởi tạo SPI2_HOST_ID đúng 1 lần cho toàn hệ thống, PHẢI gọi trước khi tạo
-      Mp3_Task (vs1053_init() bên trong chỉ add device lên bus có sẵn, không tự khởi tạo bus
-      nữa - xem spi.h để biết lý do tách ra khỏi vs1053.c: sau này device SPI khác chỉ cần tự
-      add lên cùng bus này, không phải sửa lại chỗ khởi tạo bus). Lỗi ở đây không chặn
-      app_main - Mp3_Task vẫn được tạo bình thường, tự phát hiện lỗi qua vs1053_init() trả về
-      khác ESP_OK và tự halt (xem Mp3_Task trong mp3.c), không cần thêm 1 đường xử lý lỗi mới
-      ở đây */
-   if (Spi_Init() != ESP_OK)
-   {
-       ESP_LOGE(TAG, "Spi_Init failed - devices on SPI2_HOST_ID (vd VS1053) will not work");
-   }
+   /* PlayerManager_Init()/Sdcard_Init()/Pcm_Init() không còn gọi ở đây nữa - mỗi task nay tự
+      gọi hàm init của chính mình lúc khởi động (đầu PlayerManager_Task/Sdcard_Task/Pcm_Task),
+      xem player_manager.c/sdcard.c/pcm_player.c để biết lý do từng hàm an toàn khi gọi theo
+      kiểu này (không cần đồng bộ hoá gì thêm với các task khác) */
 
    /* i2c init - khởi tạo I2C0_PORT_NUM đúng 1 lần cho toàn hệ thống, PHẢI gọi trước khi tạo
       Oled_Task (Oled_Init() bên trong chỉ add device lên bus có sẵn qua ssd1306_add_i2c_device(),
-      không tự khởi tạo bus nữa - cùng lý do tách Spi_Init() ở trên, xem i2c.h). LƯU Ý khác
-      Spi_Init(): thư viện SSD1306 dùng ESP_ERROR_CHECK() nội bộ cho i2c_master_bus_add_device()
-      (driver/ssd1306/ssd1306_i2c.c) - nếu I2c_Init() lỗi, Oled_Task add device lên bus
-      NULL sẽ khiến hệ thống reboot ngay, không halt êm như Mp3_Task/vs1053_init(); log ở đây
-      chỉ để thấy nguyên nhân trước khi reboot, không ngăn được crash */
+      không tự khởi tạo bus nữa - xem i2c.h). LƯU Ý: thư viện SSD1306 dùng ESP_ERROR_CHECK()
+      nội bộ cho i2c_master_bus_add_device() (driver/ssd1306/ssd1306_i2c.c) - nếu I2c_Init()
+      lỗi, Oled_Task add device lên bus NULL sẽ khiến hệ thống reboot ngay, không halt êm như
+      Pcm_Task/Max98357a_Init(); log ở đây chỉ để thấy nguyên nhân trước khi reboot, không ngăn
+      được crash */
    if (I2c_Init() != ESP_OK)
    {
        ESP_LOGE(TAG, "I2c_Init failed - Oled_Task will crash the system on add device");
@@ -138,7 +119,7 @@ void app_main(void)
    /* Tạo đủ cả 4 task chính - THỨ TỰ NÀY QUAN TRỌNG, Oled_Task PHẢI LUÔN LÀ TASK CUỐI CÙNG
       được tạo: Oled_Task tự gọi Button_Init() ngay sau khi vẽ xong menu lần đầu (xem
       Oled_Task trong oled.c) thay vì gọi ở app_main() như trước - an toàn dựa trên việc cả 3
-      handle còn lại (xMp3TaskHandle/xSdTaskHandle/xPlayerManagerTaskHandle) đã được gán
+      handle còn lại (xPcmTaskHandle/xSdTaskHandle/xPlayerManagerTaskHandle) đã được gán
       XONG trước khi lệnh tạo Oled_Task này chạy tới (xTaskCreatePinnedToCore() gán handle
       đồng bộ trước khi return). Nếu sau này đổi thứ tự tạo task khiến Oled_Task không còn
       là task cuối, phải dời Button_Init() trở lại app_main() (sau toàn bộ 4
@@ -147,8 +128,8 @@ void app_main(void)
       Sdcard_Task tự mount/quét thẻ SD (xem Sdcard_Task trong sdcard.c) ngay lúc khởi động
       của chính nó, không còn làm ở app_main - 2 task báo nhau qua Srm_OledNotifyBootStatus()
       (srm.c) nếu mount/quét lỗi, không task nào cần pvParameters riêng nên đều truyền NULL */
-   xTaskCreatePinnedToCore(Mp3_Task, "mp3_task", AUDIO_TASK_STACK_SIZE, NULL,
-                            AUDIO_TASK_PRIORITY_MP3, &xMp3TaskHandle, MP3_TASK_CORE);                        /* Priority 6 Core 0 */
+   xTaskCreatePinnedToCore(Pcm_Task, "pcm_task", AUDIO_TASK_STACK_SIZE, NULL,
+                            AUDIO_TASK_PRIORITY_PCM, &xPcmTaskHandle, PCM_TASK_CORE);                          /* Priority 6 Core 0 */
 
    xTaskCreatePinnedToCore(Sdcard_Task, "sdcard_task", AUDIO_TASK_STACK_SIZE, NULL,
                             AUDIO_TASK_PRIORITY_SDCARD, &xSdTaskHandle, OTHER_TASK_CORE);                    /* Priority 5 Core 1 */

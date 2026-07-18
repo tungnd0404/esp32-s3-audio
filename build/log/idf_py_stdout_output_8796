@@ -1,0 +1,211 @@
+Command: E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools/idf_monitor.py -p COM4 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 E:\project\Audio\build\audio.elf E:\project\Audio\build\bootloader\bootloader.elf --force-color -m 'E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe' 'E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools\idf.py' '-p' 'COM4'
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2a (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (24) boot: ESP-IDF v5.5.1 2nd stage bootloader[0m
+[0;32mI (25) boot: compile time Jul 18 2026 10:20:18[0m
+[0;32mI (25) boot: Multicore bootloader[0m
+[0;32mI (25) boot: chip revision: v0.2[0m
+[0;32mI (28) boot: efuse block revision: v1.3[0m
+[0;32mI (31) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (35) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (39) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (43) boot: Enabling RNG early entropy source...[0m
+[0;32mI (47) boot: Partition Table:[0m
+[0;32mI (50) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (63) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (69) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (76) boot: End of partition table[0m
+[0;32mI (79) esp_image: segment 0: paddr=00010020 vaddr=3c040020 size=12180h ( 74112) map[0m
+[0;32mI (99) esp_image: segment 1: paddr=000221a8 vaddr=3fc95b00 size=03250h ( 12880) load[0m
+[0;32mI (102) esp_image: segment 2: paddr=00025400 vaddr=40374000 size=0ac18h ( 44056) load[0m
+[0;32mI (113) esp_image: segment 3: paddr=00030020 vaddr=42000020 size=33f38h (212792) map[0m
+[0;32mI (151) esp_image: segment 4: paddr=00063f60 vaddr=4037ec18 size=06e28h ( 28200) load[0m
+[0;32mI (157) esp_image: segment 5: paddr=0006ad90 vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (164) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (165) boot: Disabling RNG early entropy source...[0m
+[0;32mI (176) cpu_start: Multicore app[0m
+[0;32mI (185) cpu_start: Pro cpu start user code[0m
+[0;32mI (185) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (185) app_init: Application information:[0m
+[0;32mI (185) app_init: Project name:     audio[0m
+[0;32mI (189) app_init: App version:      build_success-3-g36aeb73-dirty[0m
+[0;32mI (195) app_init: Compile time:     Jul 18 2026 15:20:29[0m
+[0;32mI (200) app_init: ELF file SHA256:  194dcb313...[0m
+[0;32mI (204) app_init: ESP-IDF:          v5.5.1[0m
+[0;32mI (208) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (212) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (216) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (220) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (226) heap_init: At 3FCA4A78 len 00044C98 (275 KiB): RAM[0m
+[0;32mI (231) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (236) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (242) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (248) spi_flash: detected chip: boya[0m
+[0;32mI (250) spi_flash: flash io: dio[0m
+[0;33mW (253) spi_flash: Detected size(16384k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (266) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (272) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (279) main_task: Started on CPU0[0m
+[0;32mI (299) main_task: Calling app_main()[0m
+[0;32mI (299) main_task: Returned from app_main()[0m
+[0;32mI (299) SSD1306: New i2c driver is used[0m
+[0;33mW (299) SSD1306: Will not install i2c master driver[0m
+[0;32mI (309) SSD1306: OLED configured successfully[0m
+[0;32mI (339) SDCARD: SD card mounted[0m
+Name: EB1QT
+Type: SDHC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 30528MB
+CSD: ver=2, sector_size=512, capacity=62521344 read_bl_len=9
+SSR: bus_width=1
+Found: System Volume Information
+Found: songs.db
+Found: 160.mp3
+Added: 160
+Found: 160.bin
+Found: 601.mp3
+Added: 601
+Found: 601.bin
+Total songs: 2
+MP3: /sdcard/160.mp3
+BIN: /sdcard/160.bin
+MP3: /sdcard/601.mp3
+BIN: /sdcard/601.bin
+[0;32mI (369) DOUBLE_BUFFER: Double buffer module initialized[0m
+[0;33mW (499) VS1053: [DEBUG] SCI_STATUS=0x0040 -> chip version field=4 (4=VS1053 that, khac 4 la SAI chip)[0m
+[0;32mI (499) VS1053: VS1053 initialized successfully[0m
+BUTTON SELECT AND START PLAYING
+[0;33mW (3949) VS1053: [DEBUG] DREQ waited=1 immediate=9 (last ~1s)[0m
+[0;32mI (3959) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (3989) MP3: [DEBUG] FIRST CHUNK (len=32): 49 44 33 04 00 00 00 00 01 0A 54 58 58 58 00 00[0m
+[0;33mW (4949) VS1053: [DEBUG] DREQ waited=0 immediate=2180 (last ~1s)[0m
+[0;33mW (4949) MP3: [DEBUG] chunks/s=2172 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=55 FF FB 10 64 DD 8F F0 (len=32)[0m
+[0;33mW (5959) VS1053: [DEBUG] DREQ waited=0 immediate=2193 (last ~1s)[0m
+[0;33mW (5959) MP3: [DEBUG] chunks/s=2181 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=24 8B EE E4 B2 2B 19 36 (len=32)[0m
+[0;33mW (6959) VS1053: [DEBUG] DREQ waited=0 immediate=2183 (last ~1s)[0m
+[0;33mW (6959) MP3: [DEBUG] chunks/s=2172 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=D1 DB 29 B6 F1 03 F1 AB (len=32)[0m
+[0;33mW (7959) VS1053: [DEBUG] DREQ waited=0 immediate=2124 (last ~1s)[0m
+[0;33mW (7959) MP3: [DEBUG] chunks/s=2113 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=6D 5D 64 FF FB 80 64 E6 (len=32)[0m
+[0;33mW (8959) VS1053: [DEBUG] DREQ waited=0 immediate=2127 (last ~1s)[0m
+[0;33mW (8959) MP3: [DEBUG] chunks/s=2115 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=DB FF FB 70 64 EA 00 F3 (len=32)[0m
+[0;33mW (9959) VS1053: [DEBUG] DREQ waited=0 immediate=2183 (last ~1s)[0m
+[0;33mW (9959) MP3: [DEBUG] chunks/s=2172 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=70 13 FF FB 90 64 E6 80 (len=32)[0m
+[0;33mW (10959) VS1053: [DEBUG] DREQ waited=0 immediate=2124 (last ~1s)[0m
+[0;33mW (10959) MP3: [DEBUG] chunks/s=2113 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=00 04 42 92 1A B2 54 53 (len=32)[0m
+[0;33mW (11959) VS1053: [DEBUG] DREQ waited=0 immediate=2127 (last ~1s)[0m
+[0;33mW (11959) MP3: [DEBUG] chunks/s=2115 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=55 55 55 55 55 55 55 55 (len=32)[0m
+[0;33mW (12959) VS1053: [DEBUG] DREQ waited=0 immediate=2183 (last ~1s)[0m
+[0;33mW (12959) MP3: [DEBUG] chunks/s=2172 decodeTime=3 HDAT0=0000 HDAT1=0000 first_bytes=AE FF FF FC 9E A1 06 3B (len=32)[0m
+ESP-ROM:esp32s3-20210327
+Build:Mar 27 2021
+rst:0x1 (POWERON),boot:0x2a (SPI_FAST_FLASH_BOOT)
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fce2820,len:0x158c
+load:0x403c8700,len:0xd24
+load:0x403cb700,len:0x2f34
+entry 0x403c8924
+[0;32mI (24) boot: ESP-IDF v5.5.1 2nd stage bootloader[0m
+[0;32mI (25) boot: compile time Jul 18 2026 10:20:18[0m
+[0;32mI (25) boot: Multicore bootloader[0m
+[0;32mI (25) boot: chip revision: v0.2[0m
+[0;32mI (28) boot: efuse block revision: v1.3[0m
+[0;32mI (31) boot.esp32s3: Boot SPI Speed : 80MHz[0m
+[0;32mI (35) boot.esp32s3: SPI Mode       : DIO[0m
+[0;32mI (39) boot.esp32s3: SPI Flash Size : 2MB[0m
+[0;32mI (43) boot: Enabling RNG early entropy source...[0m
+[0;32mI (47) boot: Partition Table:[0m
+[0;32mI (50) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (56) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (63) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (69) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (76) boot: End of partition table[0m
+[0;32mI (79) esp_image: segment 0: paddr=00010020 vaddr=3c040020 size=12180h ( 74112) map[0m
+[0;32mI (99) esp_image: segment 1: paddr=000221a8 vaddr=3fc95b00 size=03250h ( 12880) load[0m
+[0;32mI (102) esp_image: segment 2: paddr=00025400 vaddr=40374000 size=0ac18h ( 44056) load[0m
+[0;32mI (113) esp_image: segment 3: paddr=00030020 vaddr=42000020 size=33f38h (212792) map[0m
+[0;32mI (151) esp_image: segment 4: paddr=00063f60 vaddr=4037ec18 size=06e28h ( 28200) load[0m
+[0;32mI (157) esp_image: segment 5: paddr=0006ad90 vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (164) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (165) boot: Disabling RNG early entropy source...[0m
+[0;32mI (176) cpu_start: Multicore app[0m
+[0;32mI (185) cpu_start: Pro cpu start user code[0m
+[0;32mI (185) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (185) app_init: Application information:[0m
+[0;32mI (185) app_init: Project name:     audio[0m
+[0;32mI (189) app_init: App version:      build_success-3-g36aeb73-dirty[0m
+[0;32mI (195) app_init: Compile time:     Jul 18 2026 15:20:29[0m
+[0;32mI (200) app_init: ELF file SHA256:  194dcb313...[0m
+[0;32mI (204) app_init: ESP-IDF:          v5.5.1[0m
+[0;32mI (208) efuse_init: Min chip rev:     v0.0[0m
+[0;32mI (212) efuse_init: Max chip rev:     v0.99 [0m
+[0;32mI (216) efuse_init: Chip rev:         v0.2[0m
+[0;32mI (220) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (226) heap_init: At 3FCA4A78 len 00044C98 (275 KiB): RAM[0m
+[0;32mI (231) heap_init: At 3FCE9710 len 00005724 (21 KiB): RAM[0m
+[0;32mI (236) heap_init: At 3FCF0000 len 00008000 (32 KiB): DRAM[0m
+[0;32mI (242) heap_init: At 600FE000 len 00001FE8 (7 KiB): RTCRAM[0m
+[0;32mI (248) spi_flash: detected chip: boya[0m
+[0;32mI (250) spi_flash: flash io: dio[0m
+[0;33mW (253) spi_flash: Detected size(16384k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;32mI (266) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (272) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (279) main_task: Started on CPU0[0m
+[0;32mI (299) main_task: Calling app_main()[0m
+[0;32mI (299) main_task: Returned from app_main()[0m
+[0;32mI (299) SSD1306: New i2c driver is used[0m
+[0;33mW (299) SSD1306: Will not install i2c master driver[0m
+[0;32mI (309) SSD1306: OLED configured successfully[0m
+[0;32mI (339) SDCARD: SD card mounted[0m
+Name: EB1QT
+Type: SDHC
+Speed: 20.00 MHz (limit: 20.00 MHz)
+Size: 30528MB
+CSD: ver=2, sector_size=512, capacity=62521344 read_bl_len=9
+SSR: bus_width=1
+Found: System Volume Information
+Found: songs.db
+Found: 160.mp3
+Added: 160
+Found: 160.bin
+Found: 601.mp3
+Added: 601
+Found: 601.bin
+Total songs: 2
+MP3: /sdcard/160.mp3
+BIN: /sdcard/160.bin
+MP3: /sdcard/601.mp3
+BIN: /sdcard/601.bin
+[0;32mI (369) DOUBLE_BUFFER: Double buffer module initialized[0m
+[0;33mW (499) VS1053: [DEBUG] SCI_STATUS=0x0040 -> chip version field=4 (4=VS1053 that, khac 4 la SAI chip)[0m
+[0;32mI (499) VS1053: VS1053 initialized successfully[0m
+BUTTON SELECT AND START PLAYING
+[0;33mW (5259) VS1053: [DEBUG] DREQ waited=1 immediate=9 (last ~1s)[0m
+[0;32mI (5269) DOUBLE_BUFFER: Opened /sdcard/160.bin, total frames = 900[0m
+[0;33mW (5309) MP3: [DEBUG] FIRST CHUNK (len=32): 49 44 33 04 00 00 00 00 01 0A 54 58 58 58 00 00[0m
+[0;33mW (6279) VS1053: [DEBUG] DREQ waited=0 immediate=2186 (last ~1s)[0m
+[0;33mW (6279) MP3: [DEBUG] chunks/s=2177 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=55 55 55 55 55 55 55 55 (len=32)[0m
+[0;33mW (7279) VS1053: [DEBUG] DREQ waited=0 immediate=2216 (last ~1s)[0m
+[0;33mW (7279) MP3: [DEBUG] chunks/s=2206 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=26 CB 7C AD 82 60 6F C1 (len=32)[0m
+[0;33mW (8289) VS1053: [DEBUG] DREQ waited=0 immediate=2159 (last ~1s)[0m
+[0;33mW (8289) MP3: [DEBUG] chunks/s=2146 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=A3 2C 0D 92 4F 15 04 1D (len=32)[0m
+[0;33mW (9289) VS1053: [DEBUG] DREQ waited=0 immediate=2182 (last ~1s)[0m
+[0;33mW (9289) MP3: [DEBUG] chunks/s=2172 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=05 B6 DF 0E CD 8A FC BC (len=32)[0m
+[0;33mW (10289) VS1053: [DEBUG] DREQ waited=0 immediate=2124 (last ~1s)[0m
+[0;33mW (10289) MP3: [DEBUG] chunks/s=2113 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=F9 66 33 8E 1F BC EC 5D (len=32)[0m
+[0;33mW (11289) VS1053: [DEBUG] DREQ waited=0 immediate=2128 (last ~1s)[0m
+[0;33mW (11289) MP3: [DEBUG] chunks/s=2115 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=DA A9 30 96 41 13 0A AF (len=32)[0m
+[0;33mW (12289) VS1053: [DEBUG] DREQ waited=0 immediate=2198 (last ~1s)[0m
+[0;33mW (12289) MP3: [DEBUG] chunks/s=2188 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=FA 3B C0 81 93 86 E0 06 (len=32)[0m
+[0;33mW (13289) VS1053: [DEBUG] DREQ waited=0 immediate=2124 (last ~1s)[0m
+[0;33mW (13289) MP3: [DEBUG] chunks/s=2113 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=8C 1D B6 5C 13 52 19 57 (len=32)[0m
+[0;33mW (14289) VS1053: [DEBUG] DREQ waited=0 immediate=2128 (last ~1s)[0m
+[0;33mW (14289) MP3: [DEBUG] chunks/s=2115 decodeTime=4 HDAT0=0000 HDAT1=0000 first_bytes=ED 61 25 A8 00 00 34 80 (len=32)[0m

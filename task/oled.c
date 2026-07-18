@@ -368,10 +368,10 @@ void Oled_Task(void *pvParameters)
        xTaskCreatePinnedToCore trong app_main(), main/audio.c) - tại thời điểm dòng này chạy,
        cả 4 xTaskCreatePinnedToCore() đã return từ lâu (xTaskCreatePinnedToCore() gán handle
        ĐỒNG BỘ trước khi return, không phải sau khi task mới bắt đầu chạy), nên
-       xPlayerManagerTaskHandle/xSdTaskHandle/xMp3TaskHandle/xOledTaskHandle chắc chắn đã hợp
+       xPlayerManagerTaskHandle/xSdTaskHandle/xPcmTaskHandle/xOledTaskHandle chắc chắn đã hợp
        lệ - các ISR nút bấm (button.c) gọi xTaskNotifyFromISR(xPlayerManagerTaskHandle, ...)
        và PlayerManager_Task lúc xử lý lại gọi tiếp xTaskNotify(xOledTaskHandle/xSdTaskHandle/
-       xMp3TaskHandle, ...) sẽ không bao giờ nhận tham số NULL.
+       xPcmTaskHandle, ...) sẽ không bao giờ nhận tham số NULL.
        NẾU SAU NÀY ĐỔI THỨ TỰ TẠO TASK (Oled_Task không còn là task cuối cùng), PHẢI dời
        Button_Init() trở lại app_main() (sau toàn bộ 4 xTaskCreatePinnedToCore()) để giữ đúng
        bất biến an toàn này. */

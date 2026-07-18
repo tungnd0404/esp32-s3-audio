@@ -24,7 +24,7 @@
  *  TYPE DEFINITIONS
  * =================================================== */
 
-/* 1 bản ghi trong file database "/sdcard/songs.db": đường dẫn file mp3 và file frame
+/* 1 bản ghi trong file database "/sdcard/songs.db": đường dẫn file .pcm và file frame
    animation (.bin) đi kèm của 1 bài hát.
    KHÔNG gộp chung với Sdcard_SongInfoType_s bên dưới dù cả 2 đều mô tả "thông tin 1 bài
    hát", vì kích thước struct này chính là kích thước 1 bản ghi nhị phân trên đĩa
@@ -60,7 +60,7 @@ extern TaskHandle_t xSdTaskHandle;
 extern Sdcard_SongInfoType_s gaSongNameList[SDCARD_MAX_SONGS];
 
 /* Hàng đợi lệnh dùng chung tới Sdcard_Task (phần tử kiểu Srm_Message_s), do Sdcard_Init()
-   tạo (Sdcard_Task là owner của thẻ SD - cả double buffer animation lẫn dữ liệu mp3 thô,
+   tạo (Sdcard_Task là owner của thẻ SD - cả double buffer animation lẫn dữ liệu PCM thô,
    nhận SDCARD_CMD_GET_SINGLE_FRAME qua Srm_SdcardGetSingleFrame(), xem srm.h và
    driver/buffer/double_buffer.c) */
 extern QueueHandle_t xSdCommandQueue;
@@ -92,7 +92,7 @@ esp_err_t Sdcard_Mount(void);
 
 /**
  * @brief Sdcard_ScanAndCreateDb
- * Quét toàn bộ thư mục gốc thẻ nhớ, tìm các file .mp3 có file .bin (frame animation)
+ * Quét toàn bộ thư mục gốc thẻ nhớ, tìm các file .pcm có file .bin (frame animation)
  * đi kèm, ghi thành file database "/sdcard/songs.db" và nạp tên bài hát vào gaSongNameList
  * @param basePath: thư mục gốc cần quét (vd "/sdcard")
  * @return

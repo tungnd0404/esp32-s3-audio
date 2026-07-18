@@ -1,0 +1,48 @@
+Command: E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools/idf_monitor.py -p COM4 -b 115200 --toolchain-prefix xtensa-esp32s3-elf- --target esp32s3 --revision 0 E:\project\Audio\build\audio.elf E:\project\Audio\build\bootloader\bootloader.elf --force-color -m 'E:\ESP32-IDF-TOOL\Espressif\python_env\idf5.5_py3.11_env\Scripts\python.exe' 'E:\ESP32-IDF-TOOL\Espressif\frameworks\esp-idf-v5.5.1\tools\idf.py' '-p' 'COM4'
+[0;33m--- Warning: GDB cannot open serial ports accessed as COMx[0m
+[0;33m--- Using \\.\COM4 instead...[0m
+[0;33m--- esp-idf-monitor 1.8.0 on \\.\COM4 115200[0m
+[0;33m--- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c8924: [0;33mcall_start_cpu0[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0m--- 0x4037b09d: [0;33mpanic_abort[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/panic.c[0m[0m:[1;31m469[0m
+[0m--- 0x4037b065: [0;33mesp_system_abort[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/port/esp_system_chip.c[0m[0m:[1;31m87[0m
+[0m--- 0x4037c0c2: [0;33mvApplicationStackOverflowHook[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c[0m[0m:[1;31m563[0m
+[0m--- 0x4037d2bf: [0;33mvTaskSwitchContext[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c[0m[0m:[1;31m3698[0m
+[0m--- 0x4037c188: [0;33m_frxt_dispatch[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/portasm.S[0m[0m:[1;31m451[0m
+[0m--- 0x4037c17e: [0;33m_frxt_int_exit[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/portasm.S[0m[0m:[1;31m246[0m
+[0m--- 0x403786ca: [0;33mesp_cpu_wait_for_intr[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/cpu.c[0m[0m:[1;31m64[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c8924: [0;33mcall_start_cpu0[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0m--- 0x4037891a: [0;33mgdma_default_tx_isr[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/dma/gdma.c[0m[0m:[1;31m837[0m
+[0m--- 0x40376db0: [0;33m_xt_lowint1[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/xtensa/xtensa_vectors.S[0m[0m:[1;31m1240[0m
+[0m--- 0x4037c0fe: [0;33m_frxt_int_enter[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/portasm.S[0m[0m:[1;31m140[0m
+[0m--- 0x40378917: [0;33mgdma_default_tx_isr[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/dma/gdma.c[0m[0m:[1;31m836[0m
+[0m--- 0x40376dad: [0;33m_xt_lowint1[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/xtensa/xtensa_vectors.S[0m[0m:[1;31m1240[0m
+[0m--- 0x403786c7: [0;33mxt_utils_wait_for_intr[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/xtensa/include/xt_utils.h[0m[0m:[1;31m82[0m
+[0m--- (inlined by) [0;33mesp_cpu_wait_for_intr[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/cpu.c[0m[0m:[1;31m55[0m
+[0m--- 0x42032b6a: [0;33mesp_vApplicationIdleHook[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/freertos_hooks.c[0m[0m:[1;31m58[0m
+[0m--- 0x4037cc55: [0;33mprvIdleTask[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c[0m[0m:[1;31m4350[0m
+[0m--- 0x4037bd15: [0;33mvPortTaskWrapper[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c[0m[0m:[1;31m139[0m
+[0m--- 0x4037b1ec: [0;33mesp_restart_noos[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/port/soc/esp32s3/system_internal.c[0m[0m:[1;31m162[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c8924: [0;33mcall_start_cpu0[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0m--- 0x4037b09d: [0;33mpanic_abort[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/panic.c[0m[0m:[1;31m469[0m
+[0m--- 0x4037b065: [0;33mesp_system_abort[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/port/esp_system_chip.c[0m[0m:[1;31m87[0m
+[0m--- 0x4037c0c2: [0;33mvApplicationStackOverflowHook[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c[0m[0m:[1;31m563[0m
+[0m--- 0x4037d2bf: [0;33mvTaskSwitchContext[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c[0m[0m:[1;31m3698[0m
+[0m--- 0x4037c188: [0;33m_frxt_dispatch[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/portasm.S[0m[0m:[1;31m451[0m
+[0m--- 0x4037c17e: [0;33m_frxt_int_exit[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/portasm.S[0m[0m:[1;31m246[0m
+[0m--- 0x403786ca: [0;33mesp_cpu_wait_for_intr[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/cpu.c[0m[0m:[1;31m64[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c8924: [0;33mcall_start_cpu0[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0m--- 0x4037b09d: [0;33mpanic_abort[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/panic.c[0m[0m:[1;31m469[0m
+[0m--- 0x4037b065: [0;33mesp_system_abort[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_system/port/esp_system_chip.c[0m[0m:[1;31m87[0m
+[0m--- 0x4037c0c2: [0;33mvApplicationStackOverflowHook[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/port.c[0m[0m:[1;31m563[0m
+[0m--- 0x4037d2bf: [0;33mvTaskSwitchContext[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/tasks.c[0m[0m:[1;31m3698[0m
+[0m--- 0x4037c188: [0;33m_frxt_dispatch[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/portasm.S[0m[0m:[1;31m451[0m
+[0m--- 0x4037c17e: [0;33m_frxt_int_exit[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/freertos/FreeRTOS-Kernel/portable/xtensa/portasm.S[0m[0m:[1;31m246[0m
+[0m--- 0x403786ca: [0;33mesp_cpu_wait_for_intr[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/esp_hw_support/cpu.c[0m[0m:[1;31m64[0m
+[0m--- 0x403c8700: [0;33m_stext[0m[0m at [0;32m??[0m[0m:[1;31m?[0m
+[0m--- 0x403c8924: [0;33mcall_start_cpu0[0m[0m at [0;32mE:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m25[0m
+[0m

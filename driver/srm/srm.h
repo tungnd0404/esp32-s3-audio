@@ -15,7 +15,7 @@
  * =================================================== */
 
 /* SRM (Shared Resource Manager): bộ API dùng chung cho kiến trúc Owner Task - 1 task sở
-   hữu 1 tài nguyên dùng chung (vd Mp3_Task sở hữu VS1053), các task khác không được đụng
+   hữu 1 tài nguyên dùng chung (vd Pcm_Task sở hữu kênh I2S), các task khác không được đụng
    thẳng vào tài nguyên đó mà phải gửi lệnh qua command queue của owner. SRM cũng là nơi
    quản lý tập trung mã lệnh (cmdId) của TẤT CẢ tài nguyên dùng chung trong hệ thống - mỗi
    tài nguyên mới thêm vào sau này đều khai báo enum lệnh riêng của nó ngay tại đây.
@@ -27,11 +27,11 @@
    ép hết về uint32_t/void* chung chung ở nơi gọi. Cơ chế gửi/nhận generic (queue + registry
    response queue theo từng task) vẫn dùng chung, chỉ ẩn sau các hàm riêng này. */
 
-/* --- Lệnh cho tài nguyên VS1053 (owner: Mp3_Task, xem mp3.h/mp3.c) --- */
+/* --- Lệnh cho tài nguyên I2S/PCM (owner: Pcm_Task, xem task/pcm_player.h/pcm_player.c) --- */
 /* --- Lệnh cho tài nguyên double buffer animation (owner: Sdcard_Task, xem task/sdcard.c) --- */
 /* --- Lệnh cho tài nguyên SSD1306 (owner: Oled_Task, xem task/oled.c) --- */
 typedef enum {
-    MP3_CMD_GET_DECODE_TIME,
+    PCM_CMD_GET_PLAYED_SAMPLES,
     SDCARD_CMD_GET_SINGLE_FRAME,
     OLED_CMD_SHOW_STATUS,
 
@@ -106,20 +106,21 @@ Std_ReturnType Srm_Reply(const Srm_Message_s *pRequest, uint32_t payload);
 /* --- API riêng cho từng lệnh, 1 lệnh 1 hàm - xem Srm_CommandType_e để biết đủ danh sách --- */
 
 /**
- * @brief Srm_Mp3GetDecodeTime
- * Hỏi Mp3_Task thời gian đã giải mã (giây) của bài đang phát, đọc từ thanh ghi
- * SCI_DECODE_TIME của VS1053 (owner: Mp3_Task, xem mp3.h/mp3.c). Mp3_Task ghi thẳng giá trị
- * đọc được vào pData (giống cơ chế pOutFrame của Srm_SdcardGetSingleFrame) rồi mới trả lời,
- * payload lúc trả lời chỉ còn mang E_OK/E_NOT_OK. Không nhận ownerQueue làm tham số - lệnh
- * này luôn gửi tới đúng 1 owner cố định (Mp3_Task/xMp3CommandQueue), tự biết bên trong
- * (xem srm.c), bên gọi không cần và không nên tự chọn queue khác.
- * @param pDecodeTimeSec: [out] thời gian đã giải mã (giây), chỉ hợp lệ khi hàm trả về E_OK
+ * @brief Srm_PcmGetPlayedSamples
+ * Hỏi Pcm_Task số sample-frame ĐÃ THỰC SỰ PHÁT RA DAC của bài đang phát (owner: Pcm_Task, xem
+ * task/pcm_player.h/pcm_player.c), lấy từ Max98357a_GetPlayedSamples() (driver/max98357a) -
+ * đếm bằng callback on_sent xác nhận DMA thật, KHÔNG phải nội suy theo thời gian như
+ * Srm_Mp3GetDecodeTime()/VS1053 trước đây. Pcm_Task ghi thẳng giá trị đọc được vào pData
+ * (giống cơ chế pOutFrame của Srm_SdcardGetSingleFrame) rồi mới trả lời, payload lúc trả lời
+ * chỉ còn mang E_OK/E_NOT_OK. Không nhận ownerQueue làm tham số - lệnh này luôn gửi tới đúng 1
+ * owner cố định (Pcm_Task/xPcmCommandQueue), tự biết bên trong (xem srm.c).
+ * @param pPlayedSamples: [out] số sample-frame đã phát, chỉ hợp lệ khi hàm trả về E_OK
  * @param timeoutTicks: thời gian tối đa chờ phản hồi
- * @return E_OK nếu nhận được phản hồi E_OK trong thời gian chờ, E_NOT_OK nếu xMp3CommandQueue
+ * @return E_OK nếu nhận được phản hồi E_OK trong thời gian chờ, E_NOT_OK nếu xPcmCommandQueue
  *         chưa tồn tại, SRM hết chỗ đăng ký task mới, command queue đầy, hết thời gian chờ,
- *         hoặc Mp3_Task trả lời E_NOT_OK
+ *         hoặc Pcm_Task trả lời E_NOT_OK
  */
-Std_ReturnType Srm_Mp3GetDecodeTime(uint16_t *pDecodeTimeSec, TickType_t timeoutTicks);
+Std_ReturnType Srm_PcmGetPlayedSamples(uint32_t *pPlayedSamples, TickType_t timeoutTicks);
 
 /**
  * @brief Srm_SdcardGetSingleFrame

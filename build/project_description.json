@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "audio",
-    "project_version":    "build_success-2-gb0b964b-dirty",
+    "project_version":    "build_success-3-g36aeb73-dirty",
     "project_path":       "E:/project/Audio",
     "idf_path":           "E:/ESP32-IDF-TOOL/Espressif/frameworks/esp-idf-v5.5.1",
     "build_dir":          "E:/project/Audio/build",
@@ -1225,8 +1225,8 @@
             "managed_reqs": [],
             "managed_priv_reqs": [],
             "file": "E:/project/Audio/build/esp-idf/main/libmain.a",
-            "sources": [ "E:/project/Audio/main/audio.c", "E:/project/Audio/driver/buffer/double_buffer.c", "E:/project/Audio/driver/buffer/ring_buffer.c", "E:/project/Audio/driver/buffer/sync_frame.c", "E:/project/Audio/driver/ssd1306/menu.c", "E:/project/Audio/driver/ssd1306/ssd1306_i2c.c", "E:/project/Audio/driver/ssd1306/ssd1306_spi.c", "E:/project/Audio/driver/ssd1306/ssd1306.c", "E:/project/Audio/driver/button/button.c", "E:/project/Audio/task/oled.c", "E:/project/Audio/task/sdcard.c", "E:/project/Audio/task/player_manager.c", "E:/project/Audio/task/mp3.c", "E:/project/Audio/driver/srm/srm.c", "E:/project/Audio/driver/vs1053/vs1053.c", "E:/project/Audio/driver/spi/spi.c", "E:/project/Audio/driver/i2c/i2c.c", "E:/project/Audio/driver/gpio/gpio.c", "E:/project/Audio/driver/sdmmc/sdmmc.c", "E:/project/Audio/config/hardware/vs1053_config.c", "E:/project/Audio/config/hardware/ssd1306_config.c", "E:/project/Audio/config/hardware/button_config.c", "E:/project/Audio/config/hardware/gpio_config.c", "E:/project/Audio/config/hardware/i2c_config.c", "E:/project/Audio/config/hardware/sdcard_config.c", "E:/project/Audio/config/hardware/sdmmc_config.c", "E:/project/Audio/config/hardware/spi_config.c" ],
-            "include_dirs": [ ".", "../driver/buffer", "../driver/ssd1306", "../config", "../config/hardware", "../config/application", "../task", "../driver/button", "../driver/srm", "../driver/vs1053", "../driver/spi", "../driver/i2c", "../driver/gpio", "../driver/sdmmc", "../common" ]
+            "sources": [ "E:/project/Audio/main/audio.c", "E:/project/Audio/driver/buffer/double_buffer.c", "E:/project/Audio/driver/buffer/ring_buffer.c", "E:/project/Audio/driver/buffer/sync_frame.c", "E:/project/Audio/driver/ssd1306/menu.c", "E:/project/Audio/driver/ssd1306/ssd1306_i2c.c", "E:/project/Audio/driver/ssd1306/ssd1306_spi.c", "E:/project/Audio/driver/ssd1306/ssd1306.c", "E:/project/Audio/driver/button/button.c", "E:/project/Audio/task/oled.c", "E:/project/Audio/task/sdcard.c", "E:/project/Audio/task/player_manager.c", "E:/project/Audio/task/pcm_player.c", "E:/project/Audio/driver/srm/srm.c", "E:/project/Audio/driver/max98357a/max98357a.c", "E:/project/Audio/driver/i2c/i2c.c", "E:/project/Audio/driver/sdmmc/sdmmc.c", "E:/project/Audio/config/hardware/ssd1306_config.c", "E:/project/Audio/config/hardware/button_config.c", "E:/project/Audio/config/hardware/gpio_config.c", "E:/project/Audio/config/hardware/i2c_config.c", "E:/project/Audio/config/hardware/sdcard_config.c", "E:/project/Audio/config/hardware/sdmmc_config.c" ],
+            "include_dirs": [ ".", "../driver/buffer", "../driver/ssd1306", "../config", "../config/hardware", "../config/application", "../task", "../driver/button", "../driver/srm", "../driver/max98357a", "../driver/i2c", "../driver/sdmmc", "../common" ]
         },
         "mbedtls": {
             "alias": "idf::mbedtls",
@@ -2926,7 +2926,7 @@
             "priv_reqs": [],
             "managed_reqs": [],
             "managed_priv_reqs": [],
-            "include_dirs": [ ".", "../driver/buffer", "../driver/ssd1306", "../config", "../config/hardware", "../config/application", "../task", "../driver/button", "../driver/srm", "../driver/vs1053", "../driver/spi", "../driver/i2c", "../driver/gpio", "../driver/sdmmc", "../common" ]
+            "include_dirs": [ ".", "../driver/buffer", "../driver/ssd1306", "../config", "../config/hardware", "../config/application", "../task", "../driver/button", "../driver/srm", "../driver/max98357a", "../driver/i2c", "../driver/sdmmc", "../common" ]
         }
     },
     "debug_prefix_map_gdbinit": "",

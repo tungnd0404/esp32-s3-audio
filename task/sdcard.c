@@ -16,7 +16,7 @@
 #include "player_manager.h"
 #include "double_buffer.h"
 #include "ring_buffer.h"
-#include "mp3.h"
+#include "pcm_player.h"
 #include "srm.h"
 #include "oled.h"
 
@@ -30,7 +30,7 @@
 #define SDCARD_DB_PATH              SDCARD_MOUNT_POINT "/songs.db"
 
 /* Chu kỳ vTaskDelay giữa các lần lặp trong Sdcard_LoadSong() - nhịp nghỉ để nhường
-   CPU cho task khác (Mp3_Task, Oled_Task...) thay vì busy-poll liên tục, vì xQueueReceive
+   CPU cho task khác (Pcm_Task, Oled_Task...) thay vì busy-poll liên tục, vì xQueueReceive
    trên xSdCommandQueue giờ non-blocking (xem Sdcard_ServicePendingCommand) không còn tự
    chờ hộ vòng lặp nữa - giống hệt OLED_ANIMATION_DELAY_MS bên oled.c */
 #define SDCARD_LOAD_WAIT_MS         50U
@@ -38,11 +38,12 @@
 /* Số request tối đa có thể chờ xử lý trong xSdCommandQueue cùng lúc */
 #define SDCARD_COMMAND_QUEUE_LENGTH 4U
 
-/* Kích thước mỗi lần đọc file mp3 để nạp vào xMp3RingBuffer (byte). Lớn hơn nhiều so với
-   VS1053_CHUNK_SIZE (32 byte - kích thước Mp3_Task gửi cho VS1053 mỗi lần, xem vs1053.h) để
-   giảm số lần gọi fread() trên thẻ SD - việc tách "đọc thẻ SD theo khối lớn" khỏi "gửi cho
-   VS1053 theo khối nhỏ" chính là lý do cần xMp3RingBuffer làm lớp đệm trung gian */
-#define SDCARD_MP3_READ_CHUNK_SIZE  512U
+/* Kích thước mỗi lần đọc file .pcm để nạp vào xPcmRingBuffer (byte). PCM 16-bit stereo
+   44.1kHz cần thông lượng ~172KB/s (gấp ~10 lần MP3 128kbps trước đây), nên tăng hẳn kích
+   thước đọc mỗi lần (512 byte cũ -> 4096 byte) để giảm số lần gọi fread() trên thẻ SD tương
+   ứng - việc tách "đọc thẻ SD theo khối lớn" khỏi "ghi cho I2S theo khối vừa" chính là lý do
+   cần xPcmRingBuffer làm lớp đệm trung gian */
+#define SDCARD_PCM_READ_CHUNK_SIZE  4096U
 
 /* ===================================================
  *  GLOBAL VARIABLES
@@ -68,11 +69,11 @@ QueueHandle_t xSdCommandQueue = NULL;
 
 static const char *TAG = "SDCARD";
 
-/* File mp3 của bài ĐANG THỰC SỰ PHÁT, chỉ Sdcard_Task được đụng vào (kiến trúc Owner Task -
-   Mp3_Task không còn tự fopen/fread thẳng trên thẻ SD nữa, xem Mp3_StreamSong trong
-   mp3.c). Đóng và mở lại mỗi khi đổi bài (xem Sdcard_LoadSong), KHÔNG đóng lúc Pause -
-   giữ nguyên vị trí đọc dở để Resume tiếp tục đúng chỗ. NULL khi chưa có bài nào đang mở. */
-static FILE *gpMp3File = NULL;
+/* File .pcm của bài ĐANG THỰC SỰ PHÁT, chỉ Sdcard_Task được đụng vào (kiến trúc Owner Task -
+   Pcm_Task không tự fopen/fread thẳng trên thẻ SD, xem Pcm_StreamSong trong pcm_player.c).
+   Đóng và mở lại mỗi khi đổi bài (xem Sdcard_LoadSong), KHÔNG đóng lúc Pause - giữ nguyên vị
+   trí đọc dở để Resume tiếp tục đúng chỗ. NULL khi chưa có bài nào đang mở. */
+static FILE *gpPcmFile = NULL;
 
 /* ===================================================
  *  LOCAL FUNCTION
@@ -117,7 +118,7 @@ static void Sdcard_HandleCommand(const Srm_Message_s *pRequest)
  * @brief Sdcard_ServicePendingCommand
  * Check non-blocking (timeout = 0) xem xSdCommandQueue có request nào đang chờ không, có
  * thì xử lý ngay. Gọi mỗi vòng lặp trong Sdcard_LoadSong() - cùng khuôn mẫu với
- * Mp3_ServicePendingCommand() (mp3.c) và Oled_ServicePendingCommand() (oled.c).
+ * Pcm_ServicePendingCommand() (pcm_player.c) và Oled_ServicePendingCommand() (oled.c).
  * @param
  * @return
  */
@@ -132,57 +133,64 @@ static void Sdcard_ServicePendingCommand(void)
 }
 
 /**
- * @brief Sdcard_FillMp3RingBuffer
- * Đọc thêm dữ liệu từ gpMp3File (nếu đang mở và chưa hết file) nạp vào xMp3RingBuffer cho
- * tới khi KHÔNG còn đủ chỗ trống cho 1 khối SDCARD_MP3_READ_CHUNK_SIZE nữa, hoặc gặp EOF.
- * Gọi mỗi vòng lặp trong Sdcard_LoadSong() để xMp3RingBuffer luôn được nạp gần đầy -
+ * @brief Sdcard_FillPcmRingBuffer
+ * Đọc thêm dữ liệu từ gpPcmFile (nếu đang mở và chưa hết file) nạp vào xPcmRingBuffer cho
+ * tới khi KHÔNG còn đủ chỗ trống cho 1 khối SDCARD_PCM_READ_CHUNK_SIZE nữa, hoặc gặp EOF.
+ * Gọi mỗi vòng lặp trong Sdcard_LoadSong() để xPcmRingBuffer luôn được nạp gần đầy -
  * khác với frame animation (Oled_Task chủ động xin từng frame qua SDCARD_CMD_GET_SINGLE_FRAME,
- * xem DoubleBuffer_GetFrame), ring buffer không cần Mp3_Task báo hiệu mới nạp: cứ còn chỗ
+ * xem DoubleBuffer_GetFrame), ring buffer không cần Pcm_Task báo hiệu mới nạp: cứ còn chỗ
  * trống là nạp tiếp, đơn giản hơn vì đây là luồng dữ liệu tuần tự (không cần truy cập ngẫu
  * nhiên theo chỉ số như frame animation).
  * @param
  * @return
  */
-static void Sdcard_FillMp3RingBuffer(void)
+static void Sdcard_FillPcmRingBuffer(void)
 {
-    if ((gpMp3File == NULL) || (gbMp3StreamEof == true))
+    if ((gpPcmFile == NULL) || (gbPcmStreamEof == true))
     {
         return;
     }
 
-    uint8_t lau8Chunk[SDCARD_MP3_READ_CHUNK_SIZE];
+    /* static (KHÔNG phải local trên stack) - 4096 byte gần như chiếm hết sạch
+       AUDIO_TASK_STACK_SIZE (4096 byte, main/audio.c) nếu để trên stack của Sdcard_Task,
+       không còn chỗ cho phần còn lại của call chain (fread(), các local khác...) -> tràn stack
+       thật sự (đã quan sát được trên board thật khi tăng SDCARD_PCM_READ_CHUNK_SIZE từ 512
+       lên 4096 mà quên đổi chỗ cấp phát). An toàn khi để static vì hàm này CHỈ được gọi từ
+       chính Sdcard_Task (không có 2 lời gọi chồng nhau cùng lúc) - cùng nguyên tắc buffer lớn
+       của double_buffer.c/ring_buffer.c/oled.c (gau8Frame) */
+    static uint8_t lau8Chunk[SDCARD_PCM_READ_CHUNK_SIZE];
 
     /* Kiểm tra chỗ trống TRƯỚC khi đọc file - đảm bảo RingBuffer_Write() bên dưới luôn có
        đủ chỗ để ghi hết số byte vừa đọc được, không bao giờ phải huỷ dữ liệu đã đọc dở */
-    while (RingBuffer_GetFreeSize(xMp3RingBuffer) >= SDCARD_MP3_READ_CHUNK_SIZE)
+    while (RingBuffer_GetFreeSize(xPcmRingBuffer) >= SDCARD_PCM_READ_CHUNK_SIZE)
     {
-        size_t lReadBytes = fread(lau8Chunk, 1, SDCARD_MP3_READ_CHUNK_SIZE, gpMp3File);
+        size_t lReadBytes = fread(lau8Chunk, 1, SDCARD_PCM_READ_CHUNK_SIZE, gpPcmFile);
         if (lReadBytes == 0)
         {
             /* fread() trả 0 có thể là HẾT FILE THẬT (feof()) hoặc LỖI ĐỌC THẬT SỰ (ferror() -
                vd rút thẻ SD giữa chừng) - 2 tình huống khác nhau nhưng trước đây bị xử lý y hệt
-               nhau (chỉ set gbMp3StreamEof = true), khiến người dùng không hề biết thẻ đã bị
+               nhau (chỉ set gbPcmStreamEof = true), khiến người dùng không hề biết thẻ đã bị
                rút, chỉ thấy nhạc dừng êm như hết bài bình thường. Phân biệt bằng ferror() - nếu
                đúng là lỗi đọc, báo cho Oled_Task hiển thị lỗi qua kênh SRM sẵn có (dùng lại
                đúng OLED_BOOT_STATUS_SD_ERROR/Srm_OledNotifyBootStatus() vốn đã dùng lúc boot -
                không tạo thêm command/status code mới, không phá vỡ kiến trúc Owner Task/SRM).
-               gbMp3StreamEof vẫn phải set true trong CẢ 2 trường hợp - dù EOF thật hay lỗi đọc,
+               gbPcmStreamEof vẫn phải set true trong CẢ 2 trường hợp - dù EOF thật hay lỗi đọc,
                Sdcard_Task đều không còn gì để nạp thêm cho bài này nữa */
-            if (ferror(gpMp3File))
+            if (ferror(gpPcmFile))
             {
-                ESP_LOGE(TAG, "Read error on mp3 stream (SD card removed/faulty?)");
+                ESP_LOGE(TAG, "Read error on pcm stream (SD card removed/faulty?)");
                 Srm_OledNotifyBootStatus(OLED_BOOT_STATUS_SD_ERROR);
             }
 
-            gbMp3StreamEof = true;
+            gbPcmStreamEof = true;
             break;
         }
 
         /* Free size đã được đảm bảo đủ chỗ ngay trước vòng lặp này (chỉ Sdcard_Task tự ghi,
            không ai khác giành chỗ ghi cùng lúc - xem hợp đồng 1-gửi-1-nhận trong
            ring_buffer.h) nên về lý thuyết write() luôn thành công; vẫn log cảnh báo nếu
-           không, thay vì âm thầm mất dữ liệu mp3 không rõ lý do */
-        if (RingBuffer_Write(xMp3RingBuffer, lau8Chunk, lReadBytes, 0) == E_NOT_OK)
+           không, thay vì âm thầm mất dữ liệu PCM không rõ lý do */
+        if (RingBuffer_Write(xPcmRingBuffer, lau8Chunk, lReadBytes, 0) == E_NOT_OK)
         {
             ESP_LOGW(TAG, "RingBuffer_Write failed despite free size check (%u bytes)", (unsigned int)lReadBytes);
         }
@@ -191,11 +199,11 @@ static void Sdcard_FillMp3RingBuffer(void)
 
 /**
  * @brief Sdcard_LoadSong
- * Mở double buffer + file mp3 cho bài hát ĐANG THỰC SỰ PHÁT (gsPlayerContext.currentSong)
+ * Mở double buffer + file .pcm cho bài hát ĐANG THỰC SỰ PHÁT (gsPlayerContext.currentSong)
  * rồi liên tục: (1) xử lý lệnh SDCARD_CMD_GET_SINGLE_FRAME gửi tới qua xSdCommandQueue mỗi khi
  * Oled_Task cần 1 frame animation (xem Sdcard_HandleCommand), và
- * (2) nạp thêm dữ liệu mp3 vào xMp3RingBuffer cho Mp3_Task rút ra phát (xem
- * Sdcard_FillMp3RingBuffer) - cho tới khi có bài mới cần chuyển sang. Cùng khuôn mẫu với
+ * (2) nạp thêm dữ liệu PCM vào xPcmRingBuffer cho Pcm_Task rút ra phát (xem
+ * Sdcard_FillPcmRingBuffer) - cho tới khi có bài mới cần chuyển sang. Cùng khuôn mẫu với
  * Oled_PlayAnimation() (oled.c): mỗi vòng lặp đều check non-blocking notification để không
  * trễ khi cần đổi bài, kết quả trả về qua tham số ra để vòng lặp ngoài không bị mất giá trị
  * notification vừa nhận.
@@ -219,31 +227,42 @@ static bool Sdcard_LoadSong(uint32_t *pu32NotifyValue)
     DoubleBuffer_UnloadAll();
     DoubleBuffer_LoadAll(lSong.framePath);
 
-    /* Đóng file mp3 của bài cũ (nếu có) trước khi mở file mới. KHÔNG tự RingBuffer_Reset()
-       xMp3RingBuffer ở đây dù có vẻ hợp lý (Sdcard_Task là bên chủ động biết "dữ liệu cũ cần
+    /* Đóng file .pcm của bài cũ (nếu có) trước khi mở file mới. KHÔNG tự RingBuffer_Reset()
+       xPcmRingBuffer ở đây dù có vẻ hợp lý (Sdcard_Task là bên chủ động biết "dữ liệu cũ cần
        xoá") - Sdcard_Task là bên GHI của ring buffer này, còn RingBuffer_Reset() bản chất là
-       thao tác NHẬN; gọi nhầm phía sẽ đụng độ với Mp3_Task (bên nhận thật sự) nếu nó đang
+       thao tác NHẬN; gọi nhầm phía sẽ đụng độ với Pcm_Task (bên nhận thật sự) nếu nó đang
        mid-RingBuffer_Read() cùng lúc - xem cảnh báo chi tiết trong ring_buffer.h. Việc dọn
-       sạch dữ liệu cũ trong xMp3RingBuffer do chính Mp3_Task tự làm khi nhận CÙNG notification
-       này (xem case BTN_STATE_NEXT/PREV/PLAY_NEW trong Mp3_Task, mp3.c) */
-    if (gpMp3File != NULL)
+       sạch dữ liệu cũ trong xPcmRingBuffer do chính Pcm_Task tự làm khi nhận CÙNG notification
+       này (xem case BTN_STATE_NEXT/PREV/PLAY_NEW trong Pcm_Task, pcm_player.c) */
+    if (gpPcmFile != NULL)
     {
-        fclose(gpMp3File);
-        gpMp3File = NULL;
+        fclose(gpPcmFile);
+        gpPcmFile = NULL;
     }
-    gbMp3StreamEof = false;
+    gbPcmStreamEof = false;
 
-    gpMp3File = fopen(lSong.songPath, "rb");
-    if (gpMp3File == NULL)
+    gpPcmFile = fopen(lSong.songPath, "rb");
+    if (gpPcmFile == NULL)
     {
-        /* Không mở được file mp3 -> coi như hết dữ liệu ngay, để Mp3_Task không chờ vô ích
+        /* Không mở được file .pcm -> coi như hết dữ liệu ngay, để Pcm_Task không chờ vô ích
            (vẫn tiếp tục chạy vòng lặp bên dưới bình thường cho phần frame animation) */
-        ESP_LOGE(TAG, "Cannot open mp3 %s", lSong.songPath);
-        gbMp3StreamEof = true;
+        ESP_LOGE(TAG, "Cannot open pcm %s", lSong.songPath);
+        gbPcmStreamEof = true;
+    }
+    else
+    {
+        /* [DEBUG TẠM] in kích thước file .pcm thật ngay lúc mở - nếu ra 0 hoặc rất nhỏ, xác
+           nhận đúng nghi vấn file rỗng/gần rỗng (khiến Pcm_StreamSong() thoát ngay do EOF thật,
+           không phải lỗi) thay vì đoán. XOÁ khối debug này (4 dòng) sau khi xác định xong
+           nguyên nhân. */
+        fseek(gpPcmFile, 0, SEEK_END);
+        long lFileSize = ftell(gpPcmFile);
+        fseek(gpPcmFile, 0, SEEK_SET);
+        ESP_LOGW(TAG, "[DEBUG] Opened %s, file size = %ld bytes", lSong.songPath, lFileSize);
     }
 
     /* Vòng lặp nạp dữ liệu cho bài đang phát, chạy tới khi có notification mới (đổi bài) -
-       giống hệt Oled_PlayAnimation()/Mp3_StreamSong(): check non-blocking notify trước, tranh
+       giống hệt Oled_PlayAnimation()/Pcm_StreamSong(): check non-blocking notify trước, tranh
        thủ trả lời lệnh + làm việc, rồi mới delay nhường CPU ở cuối vòng lặp */
     while (1)
     {
@@ -257,13 +276,13 @@ static bool Sdcard_LoadSong(uint32_t *pu32NotifyValue)
            lúc đang chạy vòng lặp này, xem Sdcard_ServicePendingCommand() */
         Sdcard_ServicePendingCommand();
 
-        /* Tranh thủ nạp thêm dữ liệu mp3 cho Mp3_Task mỗi vòng lặp - không cần chờ yêu cầu
-           gì từ Mp3_Task, cứ còn chỗ trống trong xMp3RingBuffer là nạp tiếp (xem
-           Sdcard_FillMp3RingBuffer) */
-        Sdcard_FillMp3RingBuffer();
+        /* Tranh thủ nạp thêm dữ liệu PCM cho Pcm_Task mỗi vòng lặp - không cần chờ yêu cầu
+           gì từ Pcm_Task, cứ còn chỗ trống trong xPcmRingBuffer là nạp tiếp (xem
+           Sdcard_FillPcmRingBuffer) */
+        Sdcard_FillPcmRingBuffer();
 
         /* Không còn tác vụ nào tự chờ (queue receive đã chuyển non-blocking ở trên) -> phải
-           tự delay để nhường CPU cho task khác (Mp3_Task, Oled_Task...) thay vì busy-poll
+           tự delay để nhường CPU cho task khác (Pcm_Task, Oled_Task...) thay vì busy-poll
            liên tục, giống hệt Oled_PlayAnimation() */
         vTaskDelay(pdMS_TO_TICKS(SDCARD_LOAD_WAIT_MS));
     }
@@ -272,8 +291,8 @@ static bool Sdcard_LoadSong(uint32_t *pu32NotifyValue)
 /**
  * @brief Sdcard_HasExtension
  * Kiểm tra tên file có đúng phần mở rộng cần tìm không
- * @param name: tên file bao gồm extension (vd "song.mp3")
- * @param ext: phần mở rộng cần so khớp, bao gồm dấu chấm (vd ".mp3")
+ * @param name: tên file bao gồm extension (vd "song.pcm")
+ * @param ext: phần mở rộng cần so khớp, bao gồm dấu chấm (vd ".pcm")
  * @return true nếu đúng, false nếu sai hoặc tên file không có phần mở rộng
  */
 static bool Sdcard_HasExtension(const char *name, const char *ext)
@@ -292,7 +311,7 @@ static bool Sdcard_HasExtension(const char *name, const char *ext)
  * Copy tên file sang dest, bỏ phần mở rộng (phần từ dấu chấm cuối cùng trở đi)
  * @param pDest: buffer đích để lưu kết quả, kích thước destSize byte
  * @param destSize: kích thước pDest, tránh tràn bộ nhớ khi tên file dài bất thường
- * @param pSrc: tên file nguồn bao gồm extension (vd "song.mp3")
+ * @param pSrc: tên file nguồn bao gồm extension (vd "song.pcm")
  * @return
  */
 static void Sdcard_RemoveExtension(char *pDest, size_t destSize, const char *pSrc)
@@ -370,7 +389,7 @@ esp_err_t Sdcard_Mount(void)
 
 /**
  * @brief Sdcard_ScanAndCreateDb
- * Quét toàn bộ thư mục gốc thẻ nhớ, tìm các file .mp3 có file .bin (frame animation)
+ * Quét toàn bộ thư mục gốc thẻ nhớ, tìm các file .pcm có file .bin (frame animation)
  * đi kèm, ghi thành file database "/sdcard/songs.db" và nạp tên bài hát vào gaSongNameList
  * @param basePath: thư mục gốc cần quét (vd "/sdcard")
  * @return
@@ -400,24 +419,24 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
     while (((pEntry = readdir(pDir)) != NULL) && (gsPlayerContext.totalSong < SDCARD_MAX_SONGS))
     {
         char lName[64];
-        /* Tên file KHÔNG bao gồm extension, dùng để dựng lMp3Path/lBinPath - kích thước bằng
+        /* Tên file KHÔNG bao gồm extension, dùng để dựng lPcmPath/lBinPath - kích thước bằng
            đúng songPath/framePath (Sdcard_SongDbType_s, sdcard.h) thay vì dùng chung lName[64]
            (chỉ đủ cho HIỂN THỊ trên menu OLED, xem Menu_Draw trong menu.c chỉ hiện tối đa 27
            ký tự/dòng). Nếu dùng lName (đã bị cắt còn 63 ký tự) để dựng lại đường dẫn, file có
            tên gốc dài hơn 63 ký tự sẽ bị dựng SAI đường dẫn (không khớp file thật trên thẻ),
-           khiến fopen(lBinPath) thất bại và bài hát bị loại âm thầm dù có đủ cặp .mp3/.bin
+           khiến fopen(lBinPath) thất bại và bài hát bị loại âm thầm dù có đủ cặp .pcm/.bin
            hợp lệ - lBaseName giữ đủ độ dài gốc (trừ phần snprintf tự cắt an toàn nếu tên thật
            sự vượt quá 128 ký tự, cực hiếm) để tránh đúng lỗi đó */
         char lBaseName[128];
-        char lMp3Path[128];
+        char lPcmPath[128];
         char lBinPath[128];
         FILE *pBinFile;
         Sdcard_SongDbType_s lRecord;
 
         printf("Found: %s\n", pEntry->d_name);
 
-        /* Chỉ lấy file .mp3, bỏ qua file khác */
-        if (!Sdcard_HasExtension(pEntry->d_name, ".mp3"))
+        /* Chỉ lấy file .pcm, bỏ qua file khác */
+        if (!Sdcard_HasExtension(pEntry->d_name, ".pcm"))
         {
             continue;
         }
@@ -428,11 +447,11 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
         Sdcard_RemoveExtension(lName, sizeof(lName), pEntry->d_name);
 
         /* basePath la con tro khong ro do dai voi GCC nen -Wformat-truncation canh bao
-           lMp3Path/lBinPath co the bi cat - da chap nhan cat an toan (xem comment lBaseName
+           lPcmPath/lBinPath co the bi cat - da chap nhan cat an toan (xem comment lBaseName
            o tren), tat canh bao cuc bo thay vi tang buffer khong can thiet */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-truncation"
-        snprintf(lMp3Path, sizeof(lMp3Path), "%s/%s.mp3", basePath, lBaseName);
+        snprintf(lPcmPath, sizeof(lPcmPath), "%s/%s.pcm", basePath, lBaseName);
         snprintf(lBinPath, sizeof(lBinPath), "%s/%s.bin", basePath, lBaseName);
 #pragma GCC diagnostic pop
 
@@ -447,7 +466,7 @@ void Sdcard_ScanAndCreateDb(const char *basePath)
 
         /* Ghi 1 bản ghi vào database */
         memset(&lRecord, 0, sizeof(lRecord));
-        snprintf(lRecord.songPath, sizeof(lRecord.songPath), "%s", lMp3Path);
+        snprintf(lRecord.songPath, sizeof(lRecord.songPath), "%s", lPcmPath);
         snprintf(lRecord.framePath, sizeof(lRecord.framePath), "%s", lBinPath);
         fwrite(&lRecord, sizeof(Sdcard_SongDbType_s), 1, pDb);
 
@@ -493,7 +512,7 @@ void Sdcard_ReadDbFile(void)
 
     while (fread(&lRecord, sizeof(Sdcard_SongDbType_s), 1, pDb) == 1)
     {
-        printf("MP3: %s\n", lRecord.songPath);
+        printf("PCM: %s\n", lRecord.songPath);
         printf("BIN: %s\n", lRecord.framePath);
     }
 
@@ -547,9 +566,9 @@ Std_ReturnType Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
 /**
  * @brief Sdcard_Task
  * Task owner duy nhất của thẻ nhớ SD (kiến trúc Owner Task, xem srm.h). Nạp dữ liệu frame
- * animation từ thẻ nhớ vào double buffer, VÀ dữ liệu mp3 thô vào xMp3RingBuffer, đều cho
- * bài đang phát - Oled_Task/Mp3_Task chỉ đọc dữ liệu qua DoubleBuffer_GetFrame()/
- * xMp3RingBuffer, không tự đụng vào thẻ SD. Cùng khuôn thuật toán với Oled_Task (oled.c) để
+ * animation từ thẻ nhớ vào double buffer, VÀ dữ liệu PCM thô vào xPcmRingBuffer, đều cho
+ * bài đang phát - Oled_Task/Pcm_Task chỉ đọc dữ liệu qua DoubleBuffer_GetFrame()/
+ * xPcmRingBuffer, không tự đụng vào thẻ SD. Cùng khuôn thuật toán với Oled_Task (oled.c) để
  * các task trong hệ thống đọc thống nhất, dễ theo dõi:
  *
  * Cơ chế nhận sự kiện:
@@ -563,7 +582,7 @@ Std_ReturnType Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
  *
  * 2 nhánh xử lý theo buttonState:
  * - BTN_STATE_NEXT/PREV/PLAY_NEW: đổi bài (Next/Prev khi đang phát, hoặc chọn bài mới từ MENU)
- *   -> chạy Sdcard_LoadSong() mở lại double buffer + file mp3, nạp dữ liệu cho bài mới.
+ *   -> chạy Sdcard_LoadSong() mở lại double buffer + file .pcm, nạp dữ liệu cho bài mới.
  * - Các buttonState còn lại: sự kiện không liên quan tới việc đổi bài (di chuyển cursor MENU,
  *   play/pause, peek MENU...) -> bỏ qua, không làm gì.
  *
@@ -575,9 +594,9 @@ Std_ReturnType Sdcard_GetSongByIndex(uint16_t index, Sdcard_SongDbType_s *pOut)
  *
  * Mount + quét thẻ SD (Sdcard_Mount/Sdcard_ScanAndCreateDb/Sdcard_ReadDbFile) cũng chạy ngay
  * lúc khởi động task này - trước đây app_main làm việc này TRƯỚC KHI tạo task nào (đồng bộ,
- * chặn cả hệ thống), giờ chuyển vào đây cùng khuôn mẫu Mp3_Task tự gọi vs1053_init() lúc
- * khởi động (xem mp3.c). Kết quả báo cho Oled_Task qua Srm_OledNotifyBootStatus() (xem srm.c)
- * để hiển thị lỗi lên màn hình nếu cần - Sdcard_Task không được phép tự vẽ lên SSD1306
+ * chặn cả hệ thống), giờ chuyển vào đây cùng khuôn mẫu Pcm_Task tự gọi Max98357a_Init() lúc
+ * khởi động (xem pcm_player.c). Kết quả báo cho Oled_Task qua Srm_OledNotifyBootStatus() (xem
+ * srm.c) để hiển thị lỗi lên màn hình nếu cần - Sdcard_Task không được phép tự vẽ lên SSD1306
  * (Oled_Task mới là owner, xem kiến trúc Owner Task trong srm.h).
  *
  * @param pvParameters
@@ -598,8 +617,7 @@ void Sdcard_Task(void *pvParameters)
        trước để sẵn sàng càng sớm càng tốt, không phải chờ Sdcard_Mount() (chậm - I/O phần
        cứng) chạy xong mới có. Được đụng tới lần đầu qua Srm_SdcardGetSingleFrame(), CHỈ gọi
        trong Oled_PlayAnimation() - luôn cần người dùng bấm Play/Next/Prev trước, độ trễ phản
-       xạ người dùng dư sức lớn hơn thời gian dòng lệnh dưới đây chạy xong (cùng lý do
-       Mp3_Init() an toàn khi gọi trong Mp3_Task, xem mp3.c) */
+       xạ người dùng dư sức lớn hơn thời gian dòng lệnh dưới đây chạy xong */
     Sdcard_Init();
 
     /* Mount + quét thẻ SD lúc khởi động - chỉ scan/đọc DB khi mount thành công, mount fail

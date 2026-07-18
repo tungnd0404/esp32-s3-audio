@@ -6,7 +6,7 @@
 #include "freertos/task.h"
 #include "freertos/semphr.h"
 #include "esp_log.h"
-#include "mp3.h"      /* extern xMp3CommandQueue - owner cố định của Srm_Mp3GetDecodeTime() */
+#include "pcm_player.h"  /* extern xPcmCommandQueue - owner cố định của Srm_PcmGetPlayedSamples() */
 #include "sdcard.h"    /* extern xSdCommandQueue - owner cố định của Srm_SdcardGetSingleFrame() */
 #include "oled.h"      /* extern xOledCommandQueue - owner cố định của Srm_OledNotifyBootStatus() */
 
@@ -152,11 +152,11 @@ static QueueHandle_t Srm_GetOwnResponseQueue(void)
  * nhầm response của nhau - kể cả khi cùng gửi 1 loại cmdId.
  *
  * Lưu ý: 1 task chỉ nên đóng 1 vai tại 1 thời điểm khi dùng SRM - hoặc là owner (nhận
- * command hướng vào mình qua ownerQueue riêng của nó, như Mp3_Task), hoặc là bên gửi. Nếu
+ * command hướng vào mình qua ownerQueue riêng của nó, như Pcm_Task), hoặc là bên gửi. Nếu
  * 1 task vừa là owner vừa tự gọi hàm gửi lệnh đồng thời, command người khác gửi tới và
  * response nó đang chờ sẽ lẫn vào chung 1 queue của chính nó - trường hợp này chưa được hỗ trợ.
  *
- * @param ownerQueue: command queue của owner task cần gửi tới (vd xMp3CommandQueue)
+ * @param ownerQueue: command queue của owner task cần gửi tới (vd xPcmCommandQueue)
  * @param cmdId: mã lệnh (Srm_CommandType_e)
  * @param pPayload: [in/out] vào: dữ liệu vô hướng kèm theo lệnh, 0 nếu không cần; ra:
  *        payload nhận được từ owner task (chỉ khi hàm trả về true)
@@ -268,29 +268,29 @@ Std_ReturnType Srm_Reply(const Srm_Message_s *pRequest, uint32_t payload)
 }
 
 /**
- * @brief Srm_Mp3GetDecodeTime
- * Hỏi Mp3_Task thời gian đã giải mã (giây) của bài đang phát (owner: Mp3_Task). Mp3_Task ghi
- * thẳng giá trị đọc được vào pData, payload chỉ còn mang E_OK/E_NOT_OK.
- * @param pDecodeTimeSec: [out] thời gian đã giải mã (giây), chỉ hợp lệ khi hàm trả về E_OK
+ * @brief Srm_PcmGetPlayedSamples
+ * Hỏi Pcm_Task số sample-frame đã thực sự phát ra DAC của bài đang phát (owner: Pcm_Task).
+ * Pcm_Task ghi thẳng giá trị đọc được vào pData, payload chỉ còn mang E_OK/E_NOT_OK.
+ * @param pPlayedSamples: [out] số sample-frame đã phát, chỉ hợp lệ khi hàm trả về E_OK
  * @param timeoutTicks: thời gian tối đa chờ phản hồi
  * @return E_OK nếu nhận được phản hồi E_OK trong thời gian chờ, E_NOT_OK nếu thất bại/
- *         timeout/Mp3_Task trả lời E_NOT_OK
+ *         timeout/Pcm_Task trả lời E_NOT_OK
  */
-Std_ReturnType Srm_Mp3GetDecodeTime(uint16_t *pDecodeTimeSec, TickType_t timeoutTicks)
+Std_ReturnType Srm_PcmGetPlayedSamples(uint32_t *pPlayedSamples, TickType_t timeoutTicks)
 {
-    if (pDecodeTimeSec == NULL)
+    if (pPlayedSamples == NULL)
     {
         return E_NOT_OK;
     }
 
-    /* MP3_CMD_GET_DECODE_TIME không cần tham số vào -> payload để 0 lúc gửi; pData mang địa
-       chỉ lu32DecodeTime để Mp3_Task ghi thẳng thời gian giải mã vào (giống cơ chế pOutFrame
-       của Srm_SdcardGetSingleFrame), payload lúc trả lời chỉ còn mang E_OK/E_NOT_OK. Owner
-       của lệnh này luôn cố định là Mp3_Task (xMp3CommandQueue) - không nhận ownerQueue làm
-       tham số để tránh bên gọi lỡ tay truyền nhầm queue khác */
+    /* PCM_CMD_GET_PLAYED_SAMPLES không cần tham số vào -> payload để 0 lúc gửi; pData mang
+       địa chỉ lu32PlayedSamples để Pcm_Task ghi thẳng số sample đã phát vào (giống cơ chế
+       pOutFrame của Srm_SdcardGetSingleFrame), payload lúc trả lời chỉ còn mang E_OK/E_NOT_OK.
+       Owner của lệnh này luôn cố định là Pcm_Task (xPcmCommandQueue) - không nhận ownerQueue
+       làm tham số để tránh bên gọi lỡ tay truyền nhầm queue khác */
     uint32_t lu32Payload = 0U;
-    uint32_t lu32DecodeTime = 0U;
-    if (Srm_SendCommand(xMp3CommandQueue, MP3_CMD_GET_DECODE_TIME, &lu32Payload, &lu32DecodeTime, timeoutTicks) == E_NOT_OK)
+    uint32_t lu32PlayedSamples = 0U;
+    if (Srm_SendCommand(xPcmCommandQueue, PCM_CMD_GET_PLAYED_SAMPLES, &lu32Payload, &lu32PlayedSamples, timeoutTicks) == E_NOT_OK)
     {
         return E_NOT_OK;
     }
@@ -301,9 +301,7 @@ Std_ReturnType Srm_Mp3GetDecodeTime(uint16_t *pDecodeTimeSec, TickType_t timeout
         return E_NOT_OK;
     }
 
-    /* vs1053_get_decoded_time() trả uint16_t, Mp3_Task ghi thẳng (mở rộng thành uint32_t vì
-       pData cần kiểu cố định) vào lu32DecodeTime -> ép kiểu lại về uint16_t ở đây */
-    *pDecodeTimeSec = (uint16_t)lu32DecodeTime;
+    *pPlayedSamples = lu32PlayedSamples;
     return E_OK;
 }
 

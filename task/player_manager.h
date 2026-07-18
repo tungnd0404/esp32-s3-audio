@@ -55,7 +55,7 @@ typedef enum {
 typedef struct
 {
     /* mainState/playbackState: volatile vì được đọc liên tục trong vòng lặp while của
-       task khác (Oled_PlayAnimation - oled.c, Mp3_StreamSong - mp3.c) ngoài cơ chế
+       task khác (Oled_PlayAnimation - oled.c, Pcm_StreamSong - pcm_player.c) ngoài cơ chế
        task notification - không có volatile, compiler được phép cache giá trị trong thanh
        ghi qua nhiều vòng lặp nếu không thấy lời gọi hàm nào "chắc chắn" thay đổi nó, khiến
        vòng lặp có thể không bao giờ nhận ra PlayerManager_Task vừa đổi giá trị (vd không
@@ -90,8 +90,8 @@ extern PlayerManager__PlayerContextType_s gsPlayerContext;
  * Khởi tạo player manager: set state ban đầu (gsPlayerContext.mainState/buttonState/
  * playbackState). Gọi bởi chính PlayerManager_Task lúc khởi động (đầu task, trước vòng lặp
  * chính), không còn gọi từ app_main() - an toàn vì mainState/buttonState chỉ được chính
- * PlayerManager_Task đọc/ghi, còn playbackState chỉ được Oled_Task/Mp3_Task đọc bên trong
- * Oled_PlayAnimation()/Mp3_StreamSong(), cả 2 hàm đó chỉ chạy sau khi nhận notification từ
+ * PlayerManager_Task đọc/ghi, còn playbackState chỉ được Oled_Task/Pcm_Task đọc bên trong
+ * Oled_PlayAnimation()/Pcm_StreamSong(), cả 2 hàm đó chỉ chạy sau khi nhận notification từ
  * chính PlayerManager_Task (xem PlayerManager_Task trong player_manager.c).
  * @param
  * @return
